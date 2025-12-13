@@ -1,16 +1,111 @@
-概念：一种一步IO模型，分为发起异步操作、内核执行IO、通知完成、处理结果四个步骤
-核心思想：你去执行I/O，完成时通知我
+# Proactor + io_uring 高并发服务器架构设计
 
-发起异步操作：应用程序提交IO任务，调用异步API，告知内核操作类型（是读还是写）、数据缓冲区位置、操作完成后的通知方式等信息
-内核执行IO：内核接收请求，独立完成数据准备、网络传输、将数据从内核空间拷贝到应用指定的缓冲区
-通知完成：I/O 操作完全结束后，内核通过预设机制（如信号、回调函数、完成队列）通知应用程序的 Proactor 分发器
-处理结果：Proactor 分发器将事件分派给相应的事件处理器（Completion Handler），工作线程直接对已准备好的数据进行业务逻辑计算，无需执行系统调用读写数据
+## 1. 核心概念
 
-io_uring 实现 Proactor 模式设计：
-1、提交队列（Submission Queue, SQ）：应用程序将异步 I/O 请求放入提交队列，io_uring 内核线程会从该队列中取出请求并执行
-2、完成队列（Completion Queue, CQ）：I/O 操作完成后，内核将结果放入完成队列，应用程序可以从该队列中获取已完成的 I/O 事件
-3、事件循环：应用程序通过事件循环等待完成队列中的事件，处理已完成的 I/O 操作结果，数据本身已经被内核写入到用户空间的缓冲区，应用程序无需 
-4、减少系统调用：通过批量提交和获取 I/O 请求，减少系统调用次数，提高性能
+### Proactor 模式
+一种异步 I/O 模型，核心思想是 **"你去执行 I/O，完成时通知我"**。
+它分为四个步骤：
+1.  **发起异步操作**：应用程序调用异步 API，告知内核操作类型（读/写）、缓冲区位置、通知方式。
+2.  **内核执行 I/O**：内核独立完成数据准备、网络传输，并将数据直接拷贝到应用指定的缓冲区。
+3.  **通知完成**：I/O 操作完全结束后，内核通知应用程序。
+4.  **处理结果**：应用程序直接处理已准备好的数据，无需再次执行系统调用来读写数据。
+
+### io_uring
+Linux 下的高性能异步 I/O 接口，完美契合 Proactor 模式。
+*   **提交队列 (SQ)**：应用将请求放入此环形队列，内核取出执行。
+*   **完成队列 (CQ)**：内核将结果放入此环形队列，应用取出处理。
+*   内核控制SQ ring的head和CQ ring的tail，应用程序控制SQ ring的tail和CQ ring的head
+*   **零拷贝与批处理**：通过共享内存和批量提交/获取，极大地减少了系统调用和上下文切换的开销。
+
+---
+
+## 2. 高并发架构设计：主从 Proactor (One Ring Per Thread)
+
+为了实现极致的高并发性能，我们采用类似 Muduo 库的 **主从 Reactor** 思想，但在 Proactor 语境下称为 **One Ring Per Thread**。
+
+### 架构图解
+*   **Main Proactor (主线程)**：持有一个 `io_uring`，专门负责监听端口和接受新连接 (Accept)。
+*   **Sub Proactor (工作线程池)**：每个线程持有一个独立的 `io_uring`，负责处理已连接 Socket 的所有读写操作 (Read/Write) 和业务逻辑。
+
+### 核心优势
+1.  **无锁编程**：每个连接绑定到一个特定的线程，该连接的所有 I/O 操作都在该线程的 `io_uring` 中提交和处理，避免了复杂的锁竞争。
+2.  **负载均衡**：主线程通过轮询算法将新连接均匀分发给工作线程。
+3.  **充分利用多核**：每个 CPU 核心对应一个 EventLoop 线程，最大化硬件利用率。
+
+---
+
+## 3. 详细模块设计
+
+### 3.1. IoContext (上下文状态)
+*   **作用**：封装单次 I/O 操作的上下文信息。
+*   **包含**：`fd` (文件描述符), `buffer` (数据缓冲区), `callback` (回调函数), `op_type` (操作类型)。
+*   **理由**：`io_uring` 完成事件只返回一个 `user_data` 指针。我们需要通过这个结构体找回当初发起请求时的所有信息，从而执行正确的回调逻辑。
+
+### 3.2. EventLoop (核心工作循环 - Sub Proactor)
+*   **作用**：
+    *   代表一个工作线程，拥有一个独立的 `io_uring` 实例。
+    *   运行 `while(!stop)` 循环，调用 `io_uring_wait_cqe` 等待 I/O 完成事件。
+    *   **任务队列与唤醒**：拥有一个线程安全的任务队列和一个 `eventfd`。当主线程分发新连接时，将任务放入队列并写入 `eventfd` 唤醒该 Loop。
+*   **理由**：`io_uring` 实例不是线程安全的，必须由单线程独占。`eventfd` 机制解决了"如何通知正在阻塞等待 I/O 的线程去处理新任务"的问题。
+
+### 3.3. Acceptor (连接接收器 - Main Proactor)
+*   **作用**：
+    *   运行在主线程。
+    *   专门提交 `IORING_OP_ACCEPT` 请求。
+    *   当有新连接时，回调 `TcpServer` 的处理函数。
+*   **理由**：将"建立连接"与"数据处理"分离。在高并发场景下，海量的握手请求不会阻塞已建立连接的数据读写，反之亦然。
+
+### 3.4. EventLoopThreadPool (线程池管理)
+*   **作用**：
+    *   管理 N 个 `EventLoop` 线程（通常 N = CPU 核心数）。
+    *   提供 `getNextLoop()` 接口，使用轮询 (Round Robin) 算法选择下一个工作线程。
+*   **理由**：负责全局的负载均衡，确保连接均匀分布在所有 CPU 核心上。
+
+### 3.5. TcpServer (总控)
+*   **作用**：
+    *   组合 `Acceptor` 和 `EventLoopThreadPool`。
+    *   注册 `NewConnectionCallback`。
+    *   **流程**：`Acceptor` 接受连接 -> `TcpServer` 获取下一个 `EventLoop` -> 创建 `TcpConnection` -> 将连接绑定到该 Loop。
+*   **理由**：对外提供统一的服务器启动接口，隐藏内部的多线程分发细节。
+
+### 3.6. TcpConnection (连接会话)
+*   **作用**：
+    *   管理单个 TCP 连接的生命周期（建立、传输、关闭）。
+    *   持有 Socket FD 和读写缓冲区。
+    *   **绑定机制**：必须记住自己属于哪个 `EventLoop`。所有的 `submit_read` 和 `submit_write` 操作都必须提交给该 Loop 的 `io_uring`。
+*   **理由**：保证同一个连接的所有操作都在同一个EventLoop中进行
 
 
-代码模块设计：
+# io_uring系统调用：
+1. **io_uring_setup**：
+   - 作用：初始化io_uring环境，创建一个 io_uring实例的上下文，包括提交队列（SQ）和完成队列（CQ）。在使用 io_uring 进行异步 I/O 操作之前，首先需要调用 io_uring_setup 来创建一个 io_uring 实例。
+   - 参数说明：
+     - u32 entries：指定提交队列（SQ）初始**期望大小的条目数**。内核可能会调整实际大小（内核分配的实际大小在params结构体中的sq_entries字段），通常建议为 2 的幂次方，范围在 1 到 4096 之间。该参数会影响 CQ 的大小，默认情况下 CQ 大小是 SQ 的两倍。
+     - struct io_uring_params *params：一个重要的结构体指针，既作为输入参数向内核传递配置选项，也作为输出参数从内核获取队列的实际信息。
+    - struct io_uring_params的核心字段如下：
+      - 输入字段（由用户在调用前设置）：
+        - flag(u32)：最重要的配置位掩码，用于启用io_uring的各种高级模式。常用标志包括：
+          1.  IORING_SETUP_IOPOLL: 设置 I/O 轮询模式，可降低延迟但增加 CPU 消耗，通常仅适用于以 O_DIRECT方式打开的文件描述符
+          2.  IORING_SETUP_SQPOLL: 创建一个内核线程（SQ 线程）来轮询提交队列，允许应用程序在某些情况下无需系统调用即可提交 I/O 请求。可以结合 sq_thread_cpu和 sq_thread_idle使用。
+          3.  IORING_SETUP_CQSIZE: 允许应用程序自定义完成队列（CQ）的大小，而非使用默认值（通常为 2 * entries）
+        - sq_thread_cpu(__u32): 当设置了 IORING_SETUP_SQPOLL时，此字段用于指定 SQ 线程绑定到哪个 CPU 核心
+        - sq_thread_idle(__u32): 当设置了 IORING_SETUP_SQPOLL时，此字段指定 SQ 线程在空闲多少毫秒后自动进入睡眠状态。为避免频繁唤醒线程，也可结合 IORING_ENTER_SQ_WAKEUP标志使用 io_uring_enter系统调用来唤醒它。
+  
+      - 输出字段（由内核在调用返回后填充）：
+        - sq_entries(__u32): 内核实际为提交队列（SQ）分配的大小
+        - cq_entries(__u32): 内核实际为完成队列（CQ）分配的大小
+        - features(__u32): 内核返回它支持的 io_uring特性。例如，IORING_FEAT_SINGLE_MMAP是一个重要特性，如果被支持，意味着 SQ 和 CQ 可以通过一次 mmap调用完成内存映射，简化了初始化过程
+        - sq_off(struct io_sqring_offsets): 提供了 SQ 环中各个关键成员（如 head, tail, ring_mask等）在共享内存区域中的偏移量。应用程序需要通过这些偏移量来正确访问 SQ
+        - cq_off(struct io_cqring_offsets): 类似于 sq_off，但用于完成队列（CQ）
+  
+   - 返回值：成功时返回一个代表该实例的文件描述符；失败时返回负的错误代码（-errno）
+   - 函数原型：
+        ```
+        #include <linux/io_uring.h>
+        int io_uring_setup(u32 entries, struct io_uring_params *params);
+        ```
+
+2. **io_uring_enter**
+    - 作用：用于提交和等待 I/O 操作的系统调用。主要作用是将应用程序准备好的 I/O 请求提交给内核，并可以选择等待这些操作完成。
+    - 参数说明：
+      - fd：
