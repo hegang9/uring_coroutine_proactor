@@ -1,5 +1,6 @@
 ## 构建命令
-build
+mkdir build
 cd build
 cmake ..
 make
+
