@@ -44,3 +44,28 @@ void Acceptor::listen()
     listening_ = true;
     listenSocket_.listen();
 }
+
+void Acceptor::handleRead()
+{
+    InetAddress peerAddr;
+    int connfd = listenSocket_.accept(&peerAddr);
+    if (connfd >= 0)
+    {
+        if (newConnectionCallback_)
+        {
+            newConnectionCallback_(connfd, peerAddr); // 执行新连接处理回调函数
+        }
+        else
+        {
+            ::close(connfd); // 没有回调函数，关闭连接
+        }
+    }
+    else
+    {
+        perror("Acceptor::handleRead");
+        if (errno == EMFILE)
+        {
+            // 文件描述符达到上限，记录日志
+        }
+    }
+}
