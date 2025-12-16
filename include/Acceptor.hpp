@@ -4,6 +4,8 @@
 
 #include "Noncopyable.hpp"
 #include "Socket.hpp"
+#include "IoContext.hpp"
+#include <netinet/in.h>
 
 class EventLoop;
 class InetAddress;
@@ -38,8 +40,16 @@ public:
     void listen();
 
 private:
+    void handleRead(int res); // 监听Socket可读事件的回调函数，接受新连接
+    void asyncAccept();       // 提交异步 accept 请求
+
     EventLoop *loop_;                             // 所属的EventLoop对象，监听Socket属于main Proactor线程
     Socket listenSocket_;                         // 监听Socket
     bool listening_;                              // 是否正在监听
     NewConnectionCallback newConnectionCallback_; // 新连接到来的回调函数
+
+    // 用于 io_uring accept 的缓冲区
+    struct sockaddr_in clientAddr_;
+    socklen_t clientAddrLen_;
+    IoContext acceptContext_; // 专门用于 accept 的上下文
 };
