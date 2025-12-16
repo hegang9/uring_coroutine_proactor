@@ -1,0 +1,45 @@
+#pragma once
+
+#include <functional>
+
+#include "Noncopyable.hpp"
+#include "Socket.hpp"
+
+class EventLoop;
+class InetAddress;
+
+/**
+ * 负责监听（创建监听Socket）和接受新连接的类，对象属于 main Proactor线程。
+ */
+
+class Acceptor : private Noncopyable
+{
+public:
+    // 新连接回调函数类型，参数是新连接的socket文件描述符和对端地址
+    using NewConnectionCallback = std::function<void(int sockfd, const InetAddress &peerAddr)>;
+
+    /**
+     * loop: 所属的EventLoop对象，监听Socket属于main Proactor线程
+     * listenAddr: 监听地址和端口
+     * reuseport: 是否开启端口复用
+     */
+    Acceptor(EventLoop *loop, const InetAddress &listenAddr, bool reuseport);
+    ~Acceptor();
+
+    // 设置新连接到来的回调函数(在TcpServer中设置)
+    void setNewConnectionCallback(const NewConnectionCallback &cb)
+    {
+        newConnectionCallback_ = cb;
+    }
+
+    // 判断是否在监听
+    bool isListening() const { return listening_; }
+    // 监听本地端口
+    void listen();
+
+private:
+    EventLoop *loop_;                             // 所属的EventLoop对象，监听Socket属于main Proactor线程
+    Socket listenSocket_;                         // 监听Socket
+    bool listening_;                              // 是否正在监听
+    NewConnectionCallback newConnectionCallback_; // 新连接到来的回调函数
+};
