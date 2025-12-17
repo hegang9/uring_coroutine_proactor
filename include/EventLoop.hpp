@@ -1,9 +1,59 @@
 #pragma once
 
+#include <atomic>
+#include <functional>
+#include <vector>
+#include <mutex>
+#include <liburing.h>
+
+#include "Noncopyable.hpp"
+#include "IoContext.hpp"
+
 /**
  * 事件循环类，负责管理和分发事件。
+ * 封装io_uring实例，并循环处理完成队列 CQ 中的事件
  */
 
 class EventLoop : private Noncopyable
 {
+public:
+    using Functor = std::function<void()>;
+
+    EventLoop();
+    ~EventLoop();
+
+    void loop(); // 事件循环主函数
+
+    // 让 EventLoop 停止运行
+    void quit();
+
+    // 在当前 Loop 线程执行回调
+    void runInLoop(Functor cb);
+    // 把回调放入队列，并唤醒 Loop 线程执行
+    void queueInLoop(Functor cb);
+
+    // 唤醒 Loop 所在线程
+    void wakeup();
+
+    // io_uring 实例，公开以便 Acceptor/Connection 提交请求
+    struct io_uring ring_;
+
+private:
+    // io_uring I/O完成时，需要唤醒子线程
+    void handleWakeup();
+    // 执行任务队列中的任务，通常是建立新连接
+    void doPendingFunctors();
+    // 提交异步读操作以监听 wakeupFd_
+    void asyncReadWakeup();
+
+    std::atomic_bool running_; // 事件循环是否在运行
+    std::atomic_bool quit_;    // 是否请求退出事件循环
+    const pid_t threadId_;     // 事件循环所属线程的ID ，使用pid_t更加贴近内核，便于调试
+
+    int wakeupFd_;            // 用于唤醒子线程事件循环实现线程通信的文件描述符，即eventfd
+    IoContext wakeupContext_; // 提供给io_uring的唤醒事件的上下文
+
+    std::mutex mutex_;
+    std::vector<Functor> pendingFunctors_; // 任务队列
+    bool callingPendingFunctors_;   // 是否正在执行任务队列
 };
