@@ -24,7 +24,7 @@ enum class IoType
 struct IoContext
 {
     IoType type;
-    int fd;
+    int fd;       // eventfd
     void *buffer; // 可选，用于读写操作
 
     // 回调函数，当 IO 完成时调用

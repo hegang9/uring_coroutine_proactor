@@ -66,8 +66,8 @@ void EventLoop::loop()
         }
 
         // 处理完成队列中的所有事件
-        unsigned head;
-        unsigned count = 0;
+        unsigned head;      // CQE 队列头
+        unsigned count = 0; // 完成的事件数量
 
         // 批量遍历 CQE
         io_uring_for_each_cqe(&ring_, head, cqe)

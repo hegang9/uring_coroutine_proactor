@@ -6,6 +6,7 @@
 #include "Socket.hpp"
 #include "IoContext.hpp"
 #include <netinet/in.h>
+#include <memory>
 
 class EventLoop;
 class InetAddress;
@@ -43,7 +44,7 @@ private:
     void handleRead(int res); // 监听Socket可读事件的回调函数，接受新连接
     void asyncAccept();       // 提交异步 accept 请求
 
-    EventLoop *loop_;                             // 所属的EventLoop对象，监听Socket属于main Proactor线程
+    EventLoop *acceptLoop_;                       // 所属的EventLoop对象，监听Socket属于main Proactor线程
     Socket listenSocket_;                         // 监听Socket
     bool listening_;                              // 是否正在监听
     NewConnectionCallback newConnectionCallback_; // 新连接到来的回调函数

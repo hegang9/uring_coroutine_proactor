@@ -21,7 +21,7 @@ static int createNonblockingSocket()
 }
 
 Acceptor::Acceptor(EventLoop *loop, const InetAddress &listenAddr, bool reuseport)
-    : loop_(loop),
+    : acceptLoop_(loop),
       listenSocket_(createNonblockingSocket()),
       listening_(false),
       clientAddrLen_(sizeof(clientAddr_)),
@@ -56,7 +56,7 @@ void Acceptor::listen()
 void Acceptor::asyncAccept()
 {
     // 获取 SQE
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&(acceptLoop_->ring_));
     if (!sqe)
     {
         // 如果 SQ 满了，可能需要处理错误或重试
@@ -72,7 +72,7 @@ void Acceptor::asyncAccept()
     io_uring_sqe_set_data(sqe, &acceptContext_);
 
     // 提交
-    io_uring_submit(&loop_->ring_);
+    io_uring_submit(&(acceptLoop_->ring_));
 }
 
 void Acceptor::handleRead(int res)

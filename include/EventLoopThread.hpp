@@ -5,6 +5,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
+#include <future>
 
 class EventLoop;
 
@@ -23,9 +24,11 @@ public:
     EventLoop *startLoop();
 
 private:
+    // promise/future版本，开销较大
+    // void threadFunc(std::promise<EventLoop *> &&p);
     void threadFunc();
 
-    EventLoop *loop_;
+    EventLoop *loop_; // 线程中的 EventLoop 对象
     bool exiting_;
     std::thread thread_;
     std::mutex mutex_;

@@ -27,7 +27,7 @@ EventLoop *EventLoopThread::startLoop()
         std::unique_lock<std::mutex> lock(mutex_);
         while (loop_ == nullptr)
         {
-            cond_.wait(lock); // thread_还没有初始化EventLoop，必须等待
+            cond_.wait(lock);
         }
         loop = loop_;
     }
@@ -35,6 +35,39 @@ EventLoop *EventLoopThread::startLoop()
 }
 
 void EventLoopThread::threadFunc()
+{
+    EventLoop loop;
+
+    if (callback_)
+    {
+        callback_(&loop);
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        loop_ = &loop;
+        cond_.notify_one();
+    }
+
+    loop.loop();
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    loop_ = nullptr;
+}
+
+/*
+EventLoop *EventLoopThread::startLoop()
+{
+    std::promise<EventLoop *> p;
+    std::future<EventLoop *> f = p.get_future();
+
+    thread_ = std::thread(std::bind(&EventLoopThread::threadFunc, this, std::move(p)));
+
+    EventLoop *loop = f.get(); // 阻塞等待直到 promise 设置值
+    return loop;
+}
+
+void EventLoopThread::threadFunc(std::promise<EventLoop *> &&p)
 {
     EventLoop loop; // 栈上创建EventLoop对象
 
@@ -46,8 +79,10 @@ void EventLoopThread::threadFunc()
     {
         std::unique_lock<std::mutex> lock(mutex_);
         loop_ = &loop;
-        cond_.notify_one();
     }
+
+    // 通知主线程 loop 已经初始化完毕
+    p.set_value(&loop);
 
     // 开始循环
     loop.loop();
@@ -55,3 +90,4 @@ void EventLoopThread::threadFunc()
     std::lock_guard<std::mutex> lock(mutex_);
     loop_ = nullptr;
 }
+*/

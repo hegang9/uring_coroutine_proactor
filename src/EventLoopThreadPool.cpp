@@ -15,6 +15,7 @@ EventLoopThreadPool::~EventLoopThreadPool()
     // 不需要手动释放 loop，因为它们是在栈上分配的（在 EventLoopThread::threadFunc 中）
 }
 
+// 根据设定的线程数，创建并启动相应数量的子线程，同时收集这些子线程中运行的 EventLoop 指针
 void EventLoopThreadPool::start(const ThreadInitCallback &cb)
 {
     started_ = true;
@@ -41,7 +42,7 @@ EventLoop *EventLoopThreadPool::getNextLoop()
         // 轮询
         loop = loops_[next_];
         ++next_;
-        if (static_cast<size_t>(next_) >= loops_.size())
+        if (static_cast<size_t>(next_) >= loops_.size()) // 环形
         {
             next_ = 0;
         }
