@@ -18,7 +18,7 @@ class InetAddress;
 class Acceptor : private Noncopyable
 {
 public:
-    // 新连接回调函数类型，参数是新连接的socket文件描述符和对端地址
+    // 新连接回调函数类型，参数是新连接的socket文件描述符和对端地址，用于封装sockfd为一个 TcpConnection 对象
     using NewConnectionCallback = std::function<void(int sockfd, const InetAddress &peerAddr)>;
 
     /**
