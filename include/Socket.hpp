@@ -27,6 +27,11 @@ public:
     // 半关闭写端，发送FIN包，用于优雅关闭
     void shutdownWrite();
 
+    // 获取本地地址
+    InetAddress getLocalAddress() const;
+    // 获取对端地址
+    InetAddress getPeerAddress() const;
+
     // 禁用Nagle算法（为了减少网络拥塞，它会把多个小的写操作合并成一个大的 TCP 包发送。这会导致小数据包发送有延迟），提高实时性
     void setTcpNoDelay(bool on);
     // 允许重用处于TIME_WAIT状态的地址和端口，避免绑定失败。当服务器重启时，之前的监听端口可能还处于 TIME_WAIT 状态。如果不开启此选项，重启服务器会报错 "Address already in use"，必须等几分钟才能启动。对于服务器监听 Socket (ListenFd)，必须设置为 true
@@ -37,5 +42,5 @@ public:
     void setKeepAlive(bool on);
 
 private:
-    int sockfd_;
+    int sockfd_; // socket 文件描述符
 };
