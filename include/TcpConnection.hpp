@@ -13,9 +13,9 @@ class EventLoop;
 class TcpConnection : private Noncopyable
 {
 private:
-    EventLoop *loop_;                // 所属的 子EventLoop
-    std::unique_ptr<Socket> socket_; // 连接的Socket对象
-    std::atomic_int state_;          // 连接状态
+    EventLoop *loop_;       // 所属的 子EventLoop
+    Socket socket_;         // 连接的Socket对象
+    std::atomic_int state_; // 连接状态
 
     bool reading_; // 是否处于读状态
 
