@@ -10,6 +10,7 @@
 
 Socket::~Socket()
 {
+    // 在这里真正的关闭连接socket或关闭监听socket并释放资源，TcpConnection中的断开连接只是逻辑上的断开
     ::close(sockfd_);
 }
 
@@ -65,7 +66,7 @@ InetAddress Socket::getLocalAddress() const
     memset(&localaddr, 0, sizeof localaddr);
     socklen_t addrlen = sizeof(localaddr);
 
-    // 核心系统调用
+    // 核心系统调用，连接socket的本地地址由三次握手之后内核自动确定，一般会继承监听socket的本地地址和端口
     if (::getsockname(sockfd_, (struct sockaddr *)&localaddr, &addrlen) < 0)
     {
         perror("Socket::getLocalAddress");
