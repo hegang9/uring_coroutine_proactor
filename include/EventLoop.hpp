@@ -29,7 +29,7 @@ public:
 
     // 在当前 Loop 线程执行回调
     void runInLoop(Functor cb);
-    // 把回调放入队列，并唤醒 Loop 线程执行
+    // 把回调放入队列，并唤醒对应的 enentLoop 线程执行
     void queueInLoop(Functor cb);
 
     // 唤醒 Loop 所在线程
@@ -55,5 +55,5 @@ private:
 
     std::mutex mutex_;
     std::vector<Functor> pendingFunctors_; // 任务队列
-    bool callingPendingFunctors_;   // 是否正在执行任务队列
+    bool callingPendingFunctors_;          // 是否正在执行任务队列
 };

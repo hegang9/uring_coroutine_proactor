@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <coroutine>
 
 /**
  * IO 上下文，用于绑定到 io_uring 的 user_data
@@ -32,5 +33,8 @@ struct IoContext
     // 对于 Read/Write，参数是 (bytes_transferred, 0)
     std::function<void(int)> handler;
 
-    IoContext(IoType t, int f) : type(t), fd(f), buffer(nullptr) {}
+    // 协程句柄 (用于协程模式)
+    std::coroutine_handle<> coro_handle;
+
+    IoContext(IoType t, int f) : type(t), fd(f), buffer(nullptr), coro_handle(nullptr) {}
 };
