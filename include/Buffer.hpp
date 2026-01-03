@@ -25,8 +25,10 @@ public:
     size_t headerReservedBytes() const { return readIndex_; }
 
     // 返回可读数据的起始地址
-    const char *peek() const { return begin() + readIndex_; }
-
+    const char *readBeginAddr() const { return begin() + readIndex_; }
+    // 返回可写数据的起始地址
+    char *writeBeginAddr() { return begin() + writeIndex_; }
+    
     // 移动readIndex_,表示数据已被读取
     void retrieve(size_t len);
 

@@ -34,7 +34,9 @@ struct IoContext
     std::function<void(int)> handler;
 
     // 协程句柄 (用于协程模式)
-    std::coroutine_handle<> coro_handle;
+    std::coroutine_handle<promise_type> coro_handle;
 
-    IoContext(IoType t, int f) : type(t), fd(f), buffer(nullptr), coro_handle(nullptr) {}
+    int result_; // 暂存 IO 操作结果
+
+    IoContext(IoType t, int f) : type(t), fd(f), buffer(nullptr), coro_handle(nullptr), result_(0) {}
 };

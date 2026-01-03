@@ -8,8 +8,10 @@
 #include "Socket.hpp"
 #include "InetAddress.hpp"
 #include "IoContext.hpp"
-
-class EventLoop;
+#include "CoroutineTask.hpp"
+#include "AsyncRead.hpp"
+#include "AsyncWrite.hpp"
+#include "EventLoop.hpp"
 
 // TCP连接状态枚举
 enum class TcpConnectionState
@@ -82,13 +84,21 @@ public:
     void handleClose();
     void handleError();
 
-    // 异步操作提交到io_uring
-    void asyncRead();
-    void asyncWrite();
+    // 提交异步读写操作到io_uring
+    void submitReadRequest(size_t nbytes);
+    void submitWriteRequest();
+
+    // 异步读写操作的协程接口
+    AsyncReadAwaitable asyncRead();
+    AsyncWriteAwaitable asyncWrite();
 
     // 发送数据
     void send(const char *data, size_t len);
     void send(const std::string &str);
+
+    // 提供获取IoContext的接口
+    IoContext &getReadContext() { return readContext_; }
+    IoContext &getWriteContext() { return writeContext_; }
 
 private:
     EventLoop *loop_;                       // 所属的 子EventLoop

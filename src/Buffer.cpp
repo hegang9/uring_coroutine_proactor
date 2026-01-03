@@ -22,7 +22,7 @@ void Buffer::reset()
 
 std::string Buffer::readAllAsString()
 {
-    std::string result(peek(), readableBytes());
+    std::string result(readBeginAddr(), readableBytes());
     reset();
     return result;
 }

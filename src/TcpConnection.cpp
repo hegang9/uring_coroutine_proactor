@@ -52,6 +52,44 @@ void TcpConnection::forceClose()
     }
 }
 
-void TcpConnection::handleRead()
+void TcpConnection::submitReadRequest(size_t nbytes)
 {
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
+    if (!sqe)
+    {
+        // 极其罕见的情况：SQ 满了。
+        // 实际生产中可能需要处理，这里简单打印
+        fprintf(stderr, "TcpConnection::submitReadRequest: SQ full\n");
+        return;
+    }
+
+    // 准备读取nbytes字节的数据到 inputBuffer_
+    io_uring_prep_read(sqe, socket_.getFd(), inputBuffer_.writeBeginAddr(), nbytes, 0);
+    io_uring_sqe_set_data(sqe, &readContext_);
+    int ret = io_uring_submit(&loop_->ring_);
+    if (ret < 0)
+    {
+        fprintf(stderr, "TcpConnection::submitReadRequest: io_uring_submit failed: %s\n", strerror(-ret));
+    }
+}
+
+void TcpConnection::submitWriteRequest()
+{
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
+    if (!sqe)
+    {
+        // 极其罕见的情况：SQ 满了。
+        // 实际生产中可能需要处理，这里简单打印
+        fprintf(stderr, "TcpConnection::submitWriteRequest: SQ full\n");
+        return;
+    }
+
+    // 准备写出 outputBuffer_ 中的数据
+    io_uring_prep_write(sqe, socket_.getFd(), outputBuffer_.readBeginAddr(), outputBuffer_.readableBytes(), 0);
+    io_uring_sqe_set_data(sqe, &writeContext_);
+    int ret = io_uring_submit(&loop_->ring_);
+    if (ret < 0)
+    {
+        fprintf(stderr, "TcpConnection::submitWriteRequest: io_uring_submit failed: %s\n", strerror(-ret));
+    }
 }

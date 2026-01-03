@@ -14,9 +14,9 @@ struct Task
     {
         Task get_return_object() { return Task{std::coroutine_handle<promise_type>::from_promise(*this)}; }
         std::suspend_never initial_suspend() { return {}; }        // 协程创建后立即执行
-        std::suspend_never final_suspend() noexcept { return {}; } // 协程结束后不挂起
-        void return_void() {}
-        void unhandled_exception() { std::terminate(); }
+        std::suspend_never final_suspend() noexcept { return {}; } // 协程结束后不挂起，立即销毁自身
+        void return_void() {}                                      // 表示协程无返回值
+        void unhandled_exception() { std::terminate(); }           // 协程出错时终止程序
     };
 
     std::coroutine_handle<promise_type> handle_;
@@ -28,5 +28,10 @@ struct Task
         // 这里不需要手动 destroy，除非我们改变了 final_suspend 的行为。
         // 注意：如果协程被挂起且未完成，handle 需要被妥善管理。
         // 在这个简单的实现中，我们假设协程是 "fire and forget" 或者由调用者管理生命周期。
+        // 为了健壮性，添加检查以防止资源泄漏。
+        if (handle_)
+        {
+            handle_.destroy();
+        }
     }
 };
