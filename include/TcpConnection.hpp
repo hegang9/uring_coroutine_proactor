@@ -16,10 +16,10 @@
 // TCP连接状态枚举
 enum class TcpConnectionState
 {
-    kDisconnected = 0, // 断开连接
-    kConnecting = 1,   // 连接中
-    kConnected = 2,    // 已连接
-    kDisconnecting = 3 // 断开中
+    kDisconnected, // 断开连接
+    kConnecting,   // 连接中
+    kConnected,    // 已连接
+    kDisconnecting // 断开中
 };
 
 class TcpConnection : public std::enable_shared_from_this<TcpConnection>, private Noncopyable
@@ -38,9 +38,6 @@ public:
 
     TcpConnection(EventLoop *loop, int sockfd, const InetAddress &peerAddr);
     ~TcpConnection();
-
-    friend class AsyncReadAwaitable;
-    friend class AsyncWriteAwaitable;
 
     // 设置回调函数
     void setConnectionCallback(const ConnectionCallback &cb)
@@ -102,6 +99,10 @@ public:
     // 提供获取IoContext的接口
     IoContext &getReadContext() { return readContext_; }
     IoContext &getWriteContext() { return writeContext_; }
+
+    // 提供获取Buffer的接口
+    Buffer &getInputBuffer() { return inputBuffer_; }
+    Buffer &getOutputBuffer() { return outputBuffer_; }
 
 private:
     EventLoop *loop_;                       // 所属的 子EventLoop

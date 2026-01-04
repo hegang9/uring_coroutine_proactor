@@ -42,7 +42,7 @@ Task echoTask(std::shared_ptr<TcpConnection> conn)
             // 注意：readAllAsString 会清空 inputBuffer_，所以如果我们要 Echo 回去，
             // 需要先把数据拿出来，再塞到 outputBuffer_ 里。
             // 或者更高效的做法是直接操作 buffer，但为了演示清晰，我们先转成 string。
-            std::string data = conn->inputBuffer_.readAllAsString();
+            std::string data = conn->getInputBuffer().readAllAsString();
 
             // 去掉末尾可能的换行符以便打印整洁
             std::string displayData = data;
@@ -52,7 +52,7 @@ Task echoTask(std::shared_ptr<TcpConnection> conn)
 
             // 3. 准备发送数据 (Echo)
             // 将收到的数据追加到输出缓冲区
-            conn->outputBuffer_.append(data);
+            conn->getOutputBuffer().append(data);
 
             // 4. 异步发送数据 (挂起，直到数据写完)
             // asyncWrite 返回 AsyncWriteAwaitable，co_await 会触发 submitWriteRequest

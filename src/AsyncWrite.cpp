@@ -15,6 +15,6 @@ int AsyncWriteAwaitable::await_resume() const noexcept
 {
     // 返回实际写入的字节数，在后续开发中根据此结果进行错误处理
     int n = conn_->getWriteContext().result_;
-    conn_->outputBuffer_.retrieve(n); // 从输出缓冲区移除已写入的数据
+    conn_->getOutputBuffer().retrieve(n); // 从输出缓冲区移除已写入的数据
     return n;
 }

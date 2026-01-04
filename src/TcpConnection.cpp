@@ -5,7 +5,7 @@
 TcpConnection::TcpConnection(EventLoop *loop, int sockfd, const InetAddress &peerAddr)
     : loop_(loop),
       socket_(sockfd),
-      state_(0),
+      state_(TcpConnectionState::kDisconnected),
       reading_(false),
       inputBuffer_(),
       outputBuffer_(),

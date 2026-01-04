@@ -14,7 +14,7 @@ void AsyncReadAwaitable::await_suspend(std::coroutine_handle<> handle) noexcept
 int AsyncReadAwaitable::await_resume() const noexcept
 {
     int n = conn_->getReadContext().result_;
-    conn_->inputBuffer_.hasWritten(n); // 更新输入缓冲区的写索引
+    conn_->getInputBuffer().hasWritten(n); // 更新输入缓冲区的写索引
     // 返回实际读取的字节数，在后续开发中根据此结果进行错误处理
     return n;
 }
