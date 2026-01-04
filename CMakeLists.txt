@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 添加协程支持 (针对 GCC)
-add_compile_options(-fcoroutines)
+# add_compile_options(-fcoroutines)
 
 # 查找 liburing 库
 find_package(PkgConfig REQUIRED)
@@ -29,5 +29,30 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
 # 设置静态库输出目录
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
 
-# 递归添加 src 目录下的子目录
-add_subdirectory(src)
+# ==========================================
+# 项目构建配置
+# ==========================================
+
+# 1. 收集源文件 (排除入口文件)
+file(GLOB SRC_FILES "src/*.cpp")
+# 排除 test.cpp 作为库的一部分
+list(REMOVE_ITEM SRC_FILES "${CMAKE_SOURCE_DIR}/src/test.cpp")
+# 如果存在 main.cpp 也排除
+list(REMOVE_ITEM SRC_FILES "${CMAKE_SOURCE_DIR}/src/main.cpp")
+
+# 2. 生成静态库 (libproactor.a)
+add_library(proactor_static STATIC ${SRC_FILES})
+set_target_properties(proactor_static PROPERTIES OUTPUT_NAME "proactor")
+# 静态库通常不需要链接依赖，但在某些构建系统中显式声明有助于传递依赖
+target_link_libraries(proactor_static ${LIBURING_LIBRARIES} pthread)
+
+# 3. 生成动态库 (libproactor.so)
+add_library(proactor_shared SHARED ${SRC_FILES})
+set_target_properties(proactor_shared PROPERTIES OUTPUT_NAME "proactor")
+target_link_libraries(proactor_shared ${LIBURING_LIBRARIES} pthread)
+
+# 4. 生成测试可执行文件
+add_executable(proactor_test src/test.cpp)
+# 链接动态库
+target_link_libraries(proactor_test proactor_shared ${LIBURING_LIBRARIES} pthread)
+

@@ -29,8 +29,11 @@ public:
 
     // 在当前 Loop 线程执行回调
     void runInLoop(Functor cb);
-    // 把回调放入队列，并唤醒对应的 enentLoop 线程执行
+    // 把回调放入任务队列，并唤醒对应的 enentLoop 线程执行
     void queueInLoop(Functor cb);
+
+    // 协程恢复逻辑，当 io_uring_wait_cqe 返回时调用
+    void handleCompletionEvent(struct io_uring_cqe *cqe);
 
     // 唤醒 Loop 所在线程
     void wakeup();

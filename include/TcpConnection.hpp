@@ -22,7 +22,7 @@ enum class TcpConnectionState
     kDisconnecting = 3 // 断开中
 };
 
-class TcpConnection : private Noncopyable
+class TcpConnection : public std::enable_shared_from_this<TcpConnection>, private Noncopyable
 {
 public:
     // 连接建立/断开回调
@@ -38,6 +38,9 @@ public:
 
     TcpConnection(EventLoop *loop, int sockfd, const InetAddress &peerAddr);
     ~TcpConnection();
+
+    friend class AsyncReadAwaitable;
+    friend class AsyncWriteAwaitable;
 
     // 设置回调函数
     void setConnectionCallback(const ConnectionCallback &cb)
@@ -79,8 +82,8 @@ public:
     void forceClose();
 
     // 事件处理函数
-    void handleRead();
-    void handleWrite();
+    void handleRead(int param);
+    void handleWrite(int param);
     void handleClose();
     void handleError();
 
@@ -88,9 +91,9 @@ public:
     void submitReadRequest(size_t nbytes);
     void submitWriteRequest();
 
-    // 异步读写操作的协程接口
-    AsyncReadAwaitable asyncRead();
-    AsyncWriteAwaitable asyncWrite();
+    // 异步读写操作的协程接口，创建 Awaitable 对象（这个Awaitable对象包含了读或写操作所需的所有参数），当使用co_await时会触发await_suspend提交io_uring请求
+    AsyncReadAwaitable asyncRead(size_t len) { return AsyncReadAwaitable(this, len); };
+    AsyncWriteAwaitable asyncWrite() { return AsyncWriteAwaitable(this); };
 
     // 发送数据
     void send(const char *data, size_t len);

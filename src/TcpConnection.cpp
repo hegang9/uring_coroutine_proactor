@@ -1,4 +1,6 @@
 #include "TcpConnection.hpp"
+#include <cstring>
+#include <unistd.h>
 
 TcpConnection::TcpConnection(EventLoop *loop, int sockfd, const InetAddress &peerAddr)
     : loop_(loop),
@@ -17,6 +19,7 @@ TcpConnection::TcpConnection(EventLoop *loop, int sockfd, const InetAddress &pee
       highWaterMarkCallback_(nullptr),
       closeCallback_(nullptr)
 {
+    // 这里不用shared_from_this()，因为此时对象还未完全构造好，shared_from_this()会抛出异常
     readContext_.handler = std::bind(&TcpConnection::handleRead, this, std::placeholders::_1);
     writeContext_.handler = std::bind(&TcpConnection::handleWrite, this, std::placeholders::_1);
 }

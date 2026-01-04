@@ -5,16 +5,16 @@
 #include <algorithm>
 
 // 获取当前线程ID的辅助函数 (Linux specific)
-#include <sys/syscall.h>
-static pid_t gettid()
-{
-    return static_cast<pid_t>(::syscall(SYS_gettid));
-}
+// #include <sys/syscall.h>
+// static pid_t gettid()
+// {
+//     return static_cast<pid_t>(::syscall(SYS_gettid));
+// }
 
 EventLoop::EventLoop()
     : running_(false),
       quit_(false),
-      threadId_(gettid()),
+      threadId_(::gettid()),
       wakeupFd_(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)),
       wakeupContext_(IoType::Read, wakeupFd_),
       callingPendingFunctors_(false)
@@ -73,13 +73,7 @@ void EventLoop::loop()
         io_uring_for_each_cqe(&ring_, head, cqe)
         {
             count++;
-            IoContext *ctx = static_cast<IoContext *>(io_uring_cqe_get_data(cqe));
-            if (ctx && ctx->handler)
-            {
-                // 调用回调函数，传入 res (结果)
-                // 这个回调函数包括 Acceptor::handleRead, EventLoop::handleWakeup 两种，一个用于读，一个用于被唤醒
-                ctx->handler(cqe->res);
-            }
+            handleCompletionEvent(cqe);
         }
 
         // 推进 CQ 队列
@@ -95,7 +89,7 @@ void EventLoop::loop()
 void EventLoop::quit()
 {
     quit_ = true;
-    if (gettid() != threadId_)
+    if (::gettid() != threadId_)
     {
         wakeup();
     }
@@ -103,7 +97,7 @@ void EventLoop::quit()
 
 void EventLoop::runInLoop(Functor cb)
 {
-    if (gettid() == threadId_)
+    if (::gettid() == threadId_)
     {
         cb();
     }
@@ -121,9 +115,28 @@ void EventLoop::queueInLoop(Functor cb)
     }
 
     // 如果不在当前线程，或者当前正在执行 pendingFunctors，都需要唤醒
-    if (gettid() != threadId_ || callingPendingFunctors_)
+    if (::gettid() != threadId_ || callingPendingFunctors_)
     {
         wakeup();
+    }
+}
+
+void EventLoop::handleCompletionEvent(io_uring_cqe *cqe)
+{
+    IoContext *ctx = static_cast<IoContext *>(io_uring_cqe_get_data(cqe));
+    int result = cqe->res;
+    ctx->result_ = result;
+
+    // 优先检查是否是协程模式
+    if (ctx->coro_handle)
+    {
+        // 协程模式：保存结果到 Awaitable 对象，然后恢复协程
+        ctx->coro_handle.resume(); // 恢复协程执行
+    }
+    else if (ctx->handler)
+    {
+        // 传统回调模式
+        ctx->handler(result);
     }
 }
 

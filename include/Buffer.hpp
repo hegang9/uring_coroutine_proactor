@@ -28,9 +28,12 @@ public:
     const char *readBeginAddr() const { return begin() + readIndex_; }
     // 返回可写数据的起始地址
     char *writeBeginAddr() { return begin() + writeIndex_; }
-    
+
     // 移动readIndex_,表示数据已被读取
     void retrieve(size_t len);
+
+    // 移动writeIndex_,表示数据已被写入
+    void hasWritten(size_t len);
 
     // 重置缓冲区,未读完的数据直接丢失
     void reset();
@@ -54,7 +57,7 @@ private:
 
     void makeSpace(size_t len)
     {
-        if (writableBytes() + headerReservedBytes() < len + headerReservedSize_)
+        if (writeableBytes() + headerReservedBytes() < len + headerReservedSize_)
         {
             // 扩展容量
             size_t targetSize = std::max(buffer_.capacity() * 2, writeIndex_ + len);

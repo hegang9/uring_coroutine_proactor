@@ -14,6 +14,11 @@ void Buffer::retrieve(size_t len)
     }
 }
 
+void Buffer::hasWritten(size_t len)
+{
+    writeIndex_ += len;
+}
+
 void Buffer::reset()
 {
     readIndex_ = headerReservedSize_;
