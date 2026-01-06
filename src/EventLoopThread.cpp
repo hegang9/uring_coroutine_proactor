@@ -36,7 +36,7 @@ EventLoop *EventLoopThread::startLoop()
 
 void EventLoopThread::threadFunc()
 {
-    EventLoop loop;
+    EventLoop loop; // 栈上创建EventLoop对象
 
     if (callback_)
     {

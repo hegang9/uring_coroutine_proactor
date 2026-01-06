@@ -3,7 +3,7 @@
 #include <functional>
 #include <string>
 #include <memory>
-#include <map>
+#include <unordered_map>
 #include <atomic>
 
 #include "EventLoop.hpp"
@@ -55,6 +55,6 @@ private:
 
     int nextConnId_; // 下一个连接的 ID，用于生成唯一连接名称
 
-    std::map<std::string, std::shared_ptr<TcpConnection>> connections_; // 活动连接列表，key是连接名称，value是 TcpConnection 对象，使用shared_ptr保证连接在断开前不被析构
-    EventLoopThreadPool threadPool_;                                    // 线程池，每个线程运行一个 EventLoop
+    std::unordered_map<std::string, std::shared_ptr<TcpConnection>> connections_; // 活动连接列表，key是连接名称，value是 TcpConnection 对象，使用shared_ptr保证连接在断开前不被析构
+    EventLoopThreadPool threadPool_;                                              // 线程池，每个线程运行一个 EventLoop
 };

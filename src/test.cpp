@@ -105,6 +105,7 @@ int main()
 
     // 5. 启动服务器
     std::cout << "Server started on port 8888. Press Ctrl+C to stop." << std::endl;
+    server.setThreadNum(4); // 创建 4 个工作线程
     server.start();
 
     // 6. 进入事件循环
