@@ -2,8 +2,9 @@
 #include <cstring>
 #include <unistd.h>
 
-TcpConnection::TcpConnection(EventLoop *loop, int sockfd, const InetAddress &peerAddr)
-    : loop_(loop),
+TcpConnection::TcpConnection(const std::string &name, EventLoop *loop, int sockfd, const InetAddress &peerAddr)
+    : name_(name),
+      loop_(loop),
       socket_(sockfd),
       state_(TcpConnectionState::kDisconnected),
       reading_(false),
@@ -41,13 +42,12 @@ void TcpConnection::shutdown()
 
 void TcpConnection::forceClose()
 {
-    if (state_.load() == TcpConnectionState::kConnected ||
-        state_.load() == TcpConnectionState::kDisconnecting)
+    TcpConnectionState expected = TcpConnectionState::kConnected;
+    if (state_.compare_exchange_strong(expected, TcpConnectionState::kDisconnecting))
     {
-        setState(TcpConnectionState::kDisconnecting);
-        // 在所属的EventLoop线程中执行关闭操作，使用queueInLoop将关闭操作放入事件循环队列，以保证线程安全，否则可能会在错误的线程中关闭连接；使用shared_from_this确保TcpConnection对象在关闭过程中不会被销毁
         loop_->queueInLoop(std::bind(&TcpConnection::handleClose, shared_from_this()));
     }
+    // 如果已经是 kDisconnecting，不重复提交
 }
 
 void TcpConnection::submitReadRequest(size_t nbytes)
@@ -62,6 +62,7 @@ void TcpConnection::submitReadRequest(size_t nbytes)
     }
 
     // 准备读取nbytes字节的数据到 inputBuffer_
+    inputBuffer_.ensureWritableBytes(nbytes); // 确保有足够的可写空间
     io_uring_prep_read(sqe, socket_.getFd(), inputBuffer_.writeBeginAddr(), nbytes, 0);
     io_uring_sqe_set_data(sqe, &readContext_);
     int ret = io_uring_submit(&loop_->ring_);

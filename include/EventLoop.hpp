@@ -5,6 +5,7 @@
 #include <vector>
 #include <mutex>
 #include <liburing.h>
+#include <cstdint>
 
 #include "IoContext.hpp"
 
@@ -57,6 +58,7 @@ private:
     const pid_t threadId_;     // 事件循环所属线程的ID ，使用pid_t更加贴近内核，便于调试
 
     int wakeupFd_;            // 用于唤醒子线程事件循环实现线程通信的文件描述符，即eventfd
+    uint64_t wakeupBuffer_;   // eventfd 读取数据的缓冲区
     IoContext wakeupContext_; // 提供给io_uring的唤醒事件的上下文
 
     std::mutex mutex_;

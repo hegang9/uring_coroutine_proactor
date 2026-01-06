@@ -25,8 +25,7 @@ enum class IoType
 struct IoContext
 {
     IoType type;
-    int fd;       // eventfd
-    void *buffer; // 可选，用于读写操作
+    int fd; // 文件描述符
 
     // 回调函数，当 IO 完成时调用
     // 对于 Accept，参数通常是 (res, 0)
@@ -38,7 +37,7 @@ struct IoContext
 
     int result_; // 暂存 IO 操作结果，用作将io_uring读写操作的结果中转到协程
 
-    IoContext(IoType t, int f) : type(t), fd(f), buffer(nullptr), coro_handle(nullptr), result_(0) {}
+    IoContext(IoType t, int f) : type(t), fd(f), coro_handle(nullptr), result_(0) {}
 
     // 禁用拷贝和赋值
     IoContext(const IoContext &) = delete;

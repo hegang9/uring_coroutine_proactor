@@ -6,7 +6,8 @@ TcpServer::TcpServer(EventLoop *loop, const InetAddress &listenAddr, const std::
       ipPort_(listenAddr.toIpPort()),
       acceptor_(new Acceptor(loop, listenAddr, true)),
       started_(false),
-      nextConnId_(1)
+      nextConnId_(1),
+      threadPool_(loop)
 {
     // 设置新连接到来的回调函数,传递给Acceptor对象调用
     acceptor_->setNewConnectionCallback(
@@ -52,11 +53,9 @@ void TcpServer::newConnection(int sockfd, const InetAddress &peerAddr)
     snprintf(buf, sizeof buf, "-%s#%d", ipPort_.c_str(), nextConnId_++);
     std::string connName = name_ + buf;
 
-    // 获取本地地址
-    InetAddress localAddr = Socket(sockfd).getLocalAddress();
-
     // 创建 TcpConnection 对象，使用 shared_ptr 管理生命周期
-    auto conn = std::make_shared<TcpConnection>(ioLoop, sockfd, peerAddr);
+    auto conn = std::make_shared<TcpConnection>(connName, ioLoop, sockfd, peerAddr);
+    // 设置业务逻辑回调函数
     conn->setConnectionCallback(connectionCallback_);
     // 设置关闭连接时的回调函数
     conn->setCloseCallback(

@@ -52,11 +52,12 @@ Task echoTask(std::shared_ptr<TcpConnection> conn)
 
             // 3. 准备发送数据 (Echo)
             // 将收到的数据追加到输出缓冲区
-            conn->getOutputBuffer().append(data);
+            // conn->getOutputBuffer().append(data);
 
             // 4. 异步发送数据 (挂起，直到数据写完)
             // asyncWrite 返回 AsyncWriteAwaitable，co_await 会触发 submitWriteRequest
-            int written = co_await conn->asyncWrite();
+            // int written = co_await conn->asyncWrite();
+            int written = co_await conn->asyncSend(data);
 
             if (written < 0)
             {

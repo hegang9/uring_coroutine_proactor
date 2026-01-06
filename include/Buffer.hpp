@@ -66,9 +66,10 @@ private:
         else
         {
             // 搬移数据
+            size_t readable = readableBytes();
             std::copy(begin() + readIndex_, begin() + writeIndex_, begin() + headerReservedSize_);
             readIndex_ = headerReservedSize_;
-            writeIndex_ = readIndex_ + readableBytes();
+            writeIndex_ = readIndex_ + readable;
         }
     }
 

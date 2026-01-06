@@ -123,7 +123,12 @@ void EventLoop::queueInLoop(Functor cb)
 
 void EventLoop::handleCompletionEvent(io_uring_cqe *cqe)
 {
-    IoContext *ctx = static_cast<IoContext *>(io_uring_cqe_get_data(cqe));
+    void *data = io_uring_cqe_get_data(cqe);
+    if (!data) // 安全检查
+    {
+        return;
+    }
+    IoContext *ctx = static_cast<IoContext *>(data);
     int result = cqe->res;
     ctx->result_ = result;
 
@@ -153,14 +158,6 @@ void EventLoop::wakeup()
 
 void EventLoop::handleWakeup()
 {
-    uint64_t one = 1;
-    // 读取 eventfd，清除唤醒信号
-    ssize_t n = ::read(wakeupFd_, &one, sizeof(one));
-    if (n != sizeof(one))
-    {
-        perror("EventLoop::handleWakeup read");
-    }
-
     // 重新提交 wakeup 读请求，以便下一次唤醒
     asyncReadWakeup();
 }
@@ -177,7 +174,7 @@ void EventLoop::asyncReadWakeup()
     }
 
     // 准备读取 eventfd
-    io_uring_prep_read(sqe, wakeupFd_, &wakeupContext_.buffer, sizeof(uint64_t), 0);
+    io_uring_prep_read(sqe, wakeupFd_, &wakeupBuffer_, sizeof(uint64_t), 0);
     io_uring_sqe_set_data(sqe, &wakeupContext_);
     io_uring_submit(&ring_);
 }
