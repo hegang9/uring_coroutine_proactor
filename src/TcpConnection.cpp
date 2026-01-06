@@ -14,14 +14,9 @@ TcpConnection::TcpConnection(EventLoop *loop, int sockfd, const InetAddress &pee
       localAddr_(socket_.getLocalAddress()),
       peerAddr_(peerAddr),
       connectionCallback_(nullptr),
-      messageCallback_(nullptr),
-      writeCompleteCallback_(nullptr),
-      highWaterMarkCallback_(nullptr),
       closeCallback_(nullptr)
 {
-    // 这里不用shared_from_this()，因为此时对象还未完全构造好，shared_from_this()会抛出异常
-    readContext_.handler = std::bind(&TcpConnection::handleRead, this, std::placeholders::_1);
-    writeContext_.handler = std::bind(&TcpConnection::handleWrite, this, std::placeholders::_1);
+    // 协程模式下，不需要绑定传统的回调函数 (handleRead/handleWrite)
 }
 
 TcpConnection::~TcpConnection()
@@ -96,3 +91,75 @@ void TcpConnection::submitWriteRequest()
         fprintf(stderr, "TcpConnection::submitWriteRequest: io_uring_submit failed: %s\n", strerror(-ret));
     }
 }
+
+void TcpConnection::handleClose()
+{
+    // 保护 TcpConnection，防止在回调过程中被销毁
+    std::shared_ptr<TcpConnection> guard(shared_from_this());
+    if (closeCallback_)
+    {
+        closeCallback_(guard);
+    }
+}
+
+void TcpConnection::connectEstablished()
+{
+    // 将状态设置为已连接
+    setState(TcpConnectionState::kConnected);
+    // 这里调用 connectionCallback_
+    if (connectionCallback_)
+    {
+        connectionCallback_(shared_from_this());
+    }
+}
+
+void TcpConnection::connectDestroyed()
+{
+    if (state_ == TcpConnectionState::kConnected || state_ == TcpConnectionState::kDisconnecting)
+    {
+        setState(TcpConnectionState::kDisconnected);
+    }
+    // Socket 对象析构时会自动 close(fd)，
+    // io_uring 中挂起的请求会因为 fd 关闭而以 -ECANCELED 或 -EBADF 失败。
+}
+
+// 协程模式下，这些回调如果不使用，可以留空。
+// 提供实现以避免链接错误。
+// void TcpConnection::handleRead(int) {}
+// void TcpConnection::handleWrite(int) {}
+
+// Awaitable 的实现 (解决 TcpConnection 不完整类型问题)
+// #include "AsyncRead.hpp"
+// #include "AsyncWrite.hpp"
+
+// void AsyncReadAwaitable::await_suspend(std::coroutine_handle<> handle)
+// {
+//     conn_->getReadContext().coro_handle = handle;
+//     conn_->submitReadRequest(nbytes_);
+// }
+
+// int AsyncReadAwaitable::await_resume() const noexcept
+// {
+//     int n = conn_->getReadContext().result_;
+//     if (n > 0)
+//     {
+//         conn_->inputBuffer().hasWritten(n);
+//     }
+//     return n;
+// }
+
+// void AsyncWriteAwaitable::await_suspend(std::coroutine_handle<> handle)
+// {
+//     conn_->getWriteContext().coro_handle = handle;
+//     conn_->submitWriteRequest();
+// }
+
+// int AsyncWriteAwaitable::await_resume() const noexcept
+// {
+//     int n = conn_->getWriteContext().result_;
+//     if (n > 0)
+//     {
+//         conn_->outputBuffer().retrieve(n);
+//     }
+//     return n;
+// }

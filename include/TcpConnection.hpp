@@ -3,7 +3,6 @@
 #include <atomic>
 #include <memory>
 
-#include "Noncopyable.hpp"
 #include "Buffer.hpp"
 #include "Socket.hpp"
 #include "InetAddress.hpp"
@@ -22,39 +21,25 @@ enum class TcpConnectionState
     kDisconnecting // 断开中
 };
 
-class TcpConnection : public std::enable_shared_from_this<TcpConnection>, private Noncopyable
+class TcpConnection : public std::enable_shared_from_this<TcpConnection>
 {
 public:
     // 连接建立/断开回调
     using ConnectionCallback = std::function<void(const std::shared_ptr<TcpConnection> &)>;
     // 消息到来回调
-    using MessageCallback = std::function<void(const std::shared_ptr<TcpConnection> &, Buffer &)>;
-    // 写完成回调
-    using WriteCompleteCallback = std::function<void(const std::shared_ptr<TcpConnection> &)>;
-    // 高水位回调
-    using HighWaterMarkCallback = std::function<void(const std::shared_ptr<TcpConnection> &, size_t)>;
-    // 内部回调，通知 Server移除自己
     using CloseCallback = std::function<void(const std::shared_ptr<TcpConnection> &)>;
 
     TcpConnection(EventLoop *loop, int sockfd, const InetAddress &peerAddr);
     ~TcpConnection();
 
+    // 禁用拷贝和赋值
+    TcpConnection(const TcpConnection &) = delete;
+    TcpConnection &operator=(const TcpConnection &) = delete;
+
     // 设置回调函数
     void setConnectionCallback(const ConnectionCallback &cb)
     {
         connectionCallback_ = cb;
-    }
-    void setMessageCallback(const MessageCallback &cb)
-    {
-        messageCallback_ = cb;
-    }
-    void setWriteCompleteCallback(const WriteCompleteCallback &cb)
-    {
-        writeCompleteCallback_ = cb;
-    }
-    void setHighWaterMarkCallback(const HighWaterMarkCallback &cb)
-    {
-        highWaterMarkCallback_ = cb;
     }
     void setCloseCallback(const CloseCallback &cb)
     {
@@ -79,10 +64,7 @@ public:
     void forceClose();
 
     // 事件处理函数
-    void handleRead(int param);
-    void handleWrite(int param);
     void handleClose();
-    void handleError();
 
     // 提交异步读写操作到io_uring
     void submitReadRequest(size_t nbytes);
@@ -104,6 +86,11 @@ public:
     Buffer &getInputBuffer() { return inputBuffer_; }
     Buffer &getOutputBuffer() { return outputBuffer_; }
 
+    // 初始化连接（在所属 Loop 执行）
+    void connectEstablished();
+    // 销毁连接（在所属 Loop 执行）
+    void connectDestroyed();
+
 private:
     EventLoop *loop_;                       // 所属的 子EventLoop
     Socket socket_;                         // 连接的Socket对象
@@ -122,8 +109,5 @@ private:
 
     // 回调函数对象
     ConnectionCallback connectionCallback_;
-    MessageCallback messageCallback_;
-    WriteCompleteCallback writeCompleteCallback_;
-    HighWaterMarkCallback highWaterMarkCallback_;
     CloseCallback closeCallback_;
 };

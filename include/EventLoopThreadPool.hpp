@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Noncopyable.hpp"
 #include <functional>
 #include <string>
 #include <vector>
@@ -9,13 +8,17 @@
 class EventLoop;
 class EventLoopThread;
 
-class EventLoopThreadPool : private Noncopyable
+class EventLoopThreadPool
 {
 public:
     using ThreadInitCallback = std::function<void(EventLoop *)>;
 
     EventLoopThreadPool(EventLoop *baseLoop);
     ~EventLoopThreadPool();
+
+    // 禁止拷贝和赋值
+    EventLoopThreadPool(const EventLoopThreadPool &) = delete;
+    EventLoopThreadPool &operator=(const EventLoopThreadPool &) = delete;
 
     // 设置线程数量
     void setThreadNum(int numThreads) { numThreads_ = numThreads; }

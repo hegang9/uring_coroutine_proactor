@@ -6,7 +6,6 @@
 #include <mutex>
 #include <liburing.h>
 
-#include "Noncopyable.hpp"
 #include "IoContext.hpp"
 
 /**
@@ -14,13 +13,17 @@
  * 封装io_uring实例，并循环处理完成队列 CQ 中的事件
  */
 
-class EventLoop : private Noncopyable
+class EventLoop
 {
 public:
     using Functor = std::function<void()>;
 
     EventLoop();
     ~EventLoop();
+
+    // 禁止拷贝和赋值
+    EventLoop(const EventLoop &) = delete;
+    EventLoop &operator=(const EventLoop &) = delete;
 
     void loop(); // 事件循环主函数
 

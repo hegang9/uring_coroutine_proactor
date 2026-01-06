@@ -39,4 +39,8 @@ struct IoContext
     int result_; // 暂存 IO 操作结果，用作将io_uring读写操作的结果中转到协程
 
     IoContext(IoType t, int f) : type(t), fd(f), buffer(nullptr), coro_handle(nullptr), result_(0) {}
+
+    // 禁用拷贝和赋值
+    IoContext(const IoContext &) = delete;
+    IoContext &operator=(const IoContext &) = delete;
 };

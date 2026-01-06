@@ -1,7 +1,5 @@
 #pragma once
 
-#include "Noncopyable.hpp"
-
 /**
  * 封装 socket 相关操作的类。
  */
@@ -9,12 +7,16 @@
 // 前向声明，降低耦合
 class InetAddress;
 
-class Socket : private Noncopyable
+class Socket
 {
 public:
     // 显式构造函数，explicit 防止隐式转换
     explicit Socket(int sockfd) : sockfd_(sockfd) {}
     ~Socket();
+
+    // 禁用拷贝和赋值
+    Socket(const Socket &) = delete;
+    Socket &operator=(const Socket &) = delete;
 
     int getFd() const { return sockfd_; }
 

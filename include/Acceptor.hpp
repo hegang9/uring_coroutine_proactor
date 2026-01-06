@@ -2,7 +2,6 @@
 
 #include <functional>
 
-#include "Noncopyable.hpp"
 #include "Socket.hpp"
 #include "IoContext.hpp"
 #include <netinet/in.h>
@@ -15,9 +14,13 @@ class InetAddress;
  * 负责监听（创建监听Socket）和接受新连接的类，对象属于 main Proactor线程。
  */
 
-class Acceptor : private Noncopyable
+class Acceptor
 {
 public:
+    // 禁止拷贝和赋值
+    Acceptor(const Acceptor &) = delete;
+    Acceptor &operator=(const Acceptor &) = delete;
+
     // 新连接回调函数类型，参数是新连接的socket文件描述符和对端地址，用于封装sockfd为一个 TcpConnection 对象
     using NewConnectionCallback = std::function<void(int sockfd, const InetAddress &peerAddr)>;
 

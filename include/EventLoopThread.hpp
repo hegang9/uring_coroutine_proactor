@@ -1,6 +1,5 @@
 #pragma once
 
-#include "Noncopyable.hpp"
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -13,13 +12,17 @@ class EventLoop;
  * 该类封装一个线程，在线程中运行一个 EventLoop 对象
  */
 
-class EventLoopThread : private Noncopyable
+class EventLoopThread
 {
 public:
     using ThreadInitCallback = std::function<void(EventLoop *)>;
 
     EventLoopThread(const ThreadInitCallback &cb = ThreadInitCallback());
     ~EventLoopThread();
+
+    // 禁止拷贝和赋值
+    EventLoopThread(const EventLoopThread &) = delete;
+    EventLoopThread &operator=(const EventLoopThread &) = delete;
 
     EventLoop *startLoop();
 

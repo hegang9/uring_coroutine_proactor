@@ -7,6 +7,9 @@ class TcpConnection;
 class AsyncWriteAwaitable
 {
 public:
+    // 禁用拷贝和赋值
+    AsyncWriteAwaitable(const AsyncWriteAwaitable &) = delete;
+    AsyncWriteAwaitable &operator=(const AsyncWriteAwaitable &) = delete;
     AsyncWriteAwaitable(TcpConnection *conn)
         : conn_(conn) {}
     bool await_ready() const noexcept { return false; }
