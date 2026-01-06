@@ -26,12 +26,5 @@ struct Task
     {
         // 由于 final_suspend 返回 suspend_never，协程会自动销毁，
         // 这里不需要手动 destroy，除非我们改变了 final_suspend 的行为。
-        // 注意：如果协程被挂起且未完成，handle 需要被妥善管理。
-        // 在这个简单的实现中，我们假设协程是 "fire and forget" 或者由调用者管理生命周期。
-        // 为了健壮性，添加检查以防止资源泄漏。
-        if (handle_)
-        {
-            handle_.destroy();
-        }
     }
 };
