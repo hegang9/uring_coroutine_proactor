@@ -2,6 +2,7 @@
 #include <sys/eventfd.h>
 #include <unistd.h>
 #include <iostream>
+#include <thread>
 #include <algorithm>
 
 // 获取当前线程ID的辅助函数 (Linux specific)
@@ -51,6 +52,9 @@ void EventLoop::loop()
     running_ = true;
     quit_ = false;
 
+    std::cout << "[EventLoop] start loop, tid=" << std::this_thread::get_id()
+              << ", ring=" << &ring_ << std::endl;
+
     while (!quit_)
     {
         struct io_uring_cqe *cqe;
@@ -93,6 +97,8 @@ void EventLoop::quit()
     {
         wakeup();
     }
+
+    std::cout << "[EventLoop] stop loop, tid=" << std::this_thread::get_id() << std::endl;
 }
 
 void EventLoop::runInLoop(Functor cb)
@@ -136,6 +142,9 @@ void EventLoop::handleCompletionEvent(io_uring_cqe *cqe)
     if (ctx->coro_handle)
     {
         // 协程模式：保存结果到 Awaitable 对象，然后恢复协程
+        std::cout << "[Coroutine] resume on tid=" << std::this_thread::get_id()
+                  << ", type=" << static_cast<int>(ctx->type)
+                  << ", result=" << result << std::endl;
         ctx->coro_handle.resume(); // 恢复协程执行
     }
     else if (ctx->handler)

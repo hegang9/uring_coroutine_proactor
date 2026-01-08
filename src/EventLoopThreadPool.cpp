@@ -1,6 +1,8 @@
 #include "EventLoopThreadPool.hpp"
 #include "EventLoopThread.hpp"
 #include "EventLoop.hpp"
+#include <iostream>
+#include <thread>
 
 EventLoopThreadPool::EventLoopThreadPool(EventLoop *baseLoop)
     : baseLoop_(baseLoop),
@@ -24,6 +26,9 @@ void EventLoopThreadPool::start(const ThreadInitCallback &cb)
     {
         auto t = std::make_unique<EventLoopThread>(cb);
         loops_.push_back(t->startLoop());
+        std::cout << "[ThreadPool] started worker " << i
+                  << ", tid=" << std::this_thread::get_id()
+                  << ", loop=" << loops_.back() << std::endl;
         threads_.push_back(std::move(t));
     }
 

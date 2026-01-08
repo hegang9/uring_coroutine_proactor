@@ -22,9 +22,8 @@
     
     // ====== 编辑器通用设置 ======
     "editor.formatOnSave": true,
-    "editor.defaultFormatter": "xaver.clang-format",
+    "editor.defaultFormatter": "ms-vscode.cpptools",
     "files.exclude": {
-        "**/build": true,
         "**/.git": true
     },
     

@@ -2,7 +2,7 @@
 mkdir build
 cd build
 cmake ..
-make
+make -j"$(nproc)"
 
 ## 连接命令
 nc 127.0.0.1 8888
