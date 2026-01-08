@@ -3,6 +3,8 @@
 #include <functional>
 #include <coroutine>
 
+#include "MemoryPool.hpp"
+
 /**
  * IO 上下文，用于绑定到 io_uring 的 user_data
  * 作用：保存与某个 IO 操作相关的上下文信息，包括操作类型、文件描述符、缓冲区指针和完成回调函数

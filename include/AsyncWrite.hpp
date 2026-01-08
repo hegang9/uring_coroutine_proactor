@@ -1,6 +1,7 @@
 #pragma once
 #include <coroutine>
 #include <cstddef>
+#include "MemoryPool.hpp"
 
 class TcpConnection;
 
@@ -16,6 +17,16 @@ public:
     void await_suspend(std::coroutine_handle<> handle) noexcept;
     int await_resume() const noexcept;
     ~AsyncWriteAwaitable() = default;
+
+    // 重载new/delete，接入内存池
+    static void *operator new(size_t size)
+    {
+        return HashBucket::useMemory(size);
+    }
+    static void operator delete(void *p, size_t size)
+    {
+        HashBucket::freeMemory(p, size);
+    }
 
 private:
     TcpConnection *conn_;

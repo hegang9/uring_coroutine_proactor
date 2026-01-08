@@ -1,0 +1,43 @@
+{
+    // ====== C/C++ IntelliSense 配置 ======
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.intelliSenseEngineFallback": "enabled",
+    "C_Cpp.errorSquiggles": "enabled",
+    "C_Cpp.doxygeninitialComment": true,
+    
+    // 禁用 IntelliSense 缓存问题
+    "C_Cpp.codeAnalysis.enabled": true,
+    "C_Cpp.codeAnalysis.runAutomatically": true,
+    
+    // 关键：使用基于编译数据库的精确路径解析
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/**",
+        "/usr/include",
+        "/usr/include/c++/11",
+        "/usr/include/x86_64-linux-gnu/c++/11"
+    ],
+    "C_Cpp.default.cppStandard": "gnu++20",
+    "C_Cpp.default.cStandard": "c17",
+    "C_Cpp.default.compilerPath": "/usr/bin/g++",
+    
+    // ====== 编辑器通用设置 ======
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "xaver.clang-format",
+    "files.exclude": {
+        "**/build": true,
+        "**/.git": true
+    },
+    
+    // ====== 文件关联 ======
+    "files.associations": {
+        "*.hpp": "cpp",
+        "*.cpp": "cpp"
+    },
+    
+    // ====== Clang-Format 配置 ======
+    "C_Cpp.clang_format_fallbackStyle": "Google",
+    
+    // ====== 禁用可能导致问题的扩展功能 ======
+    "C_Cpp.autocompleteAddParentheses": true,
+    "C_Cpp.autocomplete": "default"
+}

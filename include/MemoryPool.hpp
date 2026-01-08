@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cassert>
 #include <cstdint>
 #include <iostream>
@@ -47,11 +48,11 @@ public:
     static void initMemoryPool();
     // 单例模式
     static MemoryPool &getMemoryPool(int index); // 获取内存池接口
-    static void *useMemory(size_t size);         // 提供给用户使用内存池的外部接口
+    static void *useMemory(size_t size);
     static void freeMemory(void *p, size_t size);
 
     template <typename T, typename... Args>
-    friend T *newElement(Args &&...args); // 在内存池分配的内存中创建对象
+    friend T *newElement(Args &&...args); // 提供给用户在内存池分配的内存中创建对象的外部接口
 
     template <typename T>
     friend void deleteElement(T *p); // 析构内存池分配的内存中的对象
@@ -67,7 +68,7 @@ inline T *newElement(Args &&...args)
     if (res)
     {
         // placement new与完美转发
-        new (p) T(std::forward<Args>(args)...);
+        new (res) T(std::forward<Args>(args)...);
     }
     return res;
 }

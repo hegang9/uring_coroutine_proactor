@@ -8,6 +8,7 @@
 #include "EventLoop.hpp"
 #include "TcpConnection.hpp"
 #include "CoroutineTask.hpp"
+#include "MemoryPool.hpp"
 #include "InetAddress.hpp"
 
 // 协程业务逻辑：Echo 服务
@@ -82,18 +83,30 @@ Task echoTask(std::shared_ptr<TcpConnection> conn)
 
 int main()
 {
+    // 0. 初始化内存池（必须在使用任何内存池分配前调用）
+    std::cout << "[DEBUG] Initializing memory pool..." << std::endl;
+    HashBucket::initMemoryPool();
+    std::cout << "[DEBUG] Memory pool initialized successfully." << std::endl;
+
     // 1. 初始化 EventLoop
+    std::cout << "[DEBUG] Creating EventLoop..." << std::endl;
     EventLoop loop;
+    std::cout << "[DEBUG] EventLoop created." << std::endl;
 
     // 2. 设置监听地址
+    std::cout << "[DEBUG] Creating InetAddress..." << std::endl;
     InetAddress listenAddr(8888);
+    std::cout << "[DEBUG] InetAddress created." << std::endl;
 
     // 3. 创建 TcpServer
+    std::cout << "[DEBUG] Creating TcpServer..." << std::endl;
     TcpServer server(&loop, listenAddr);
+    std::cout << "[DEBUG] TcpServer created." << std::endl;
 
     // 4. 设置新连接回调
     // 当有新连接时，TcpServer 会调用这个 lambda
     // 我们在这里启动协程来处理这个连接
+    std::cout << "[DEBUG] Setting connection callback..." << std::endl;
     server.setConnectionCallback([](const std::shared_ptr<TcpConnection> &conn)
                                  {
         // 启动协程 (Fire and Forget)
@@ -102,14 +115,21 @@ int main()
         // 且协程句柄被保存在 IoContext 中（通过 await_suspend），
         // 所以协程会继续存活，直到函数体执行完毕。
         echoTask(conn); });
+    std::cout << "[DEBUG] Connection callback set." << std::endl;
 
     // 5. 启动服务器
-    std::cout << "Server started on port 8888. Press Ctrl+C to stop." << std::endl;
+    std::cout << "[DEBUG] Setting thread num..." << std::endl;
     server.setThreadNum(4); // 创建 4 个工作线程
+    std::cout << "[DEBUG] Thread num set. Starting server..." << std::endl;
     server.start();
+    std::cout << "[DEBUG] Server started." << std::endl;
+    
+    std::cout << "Server started on port 8888. Press Ctrl+C to stop." << std::endl;
 
     // 6. 进入事件循环
+    std::cout << "[DEBUG] Entering event loop..." << std::endl;
     loop.loop();
+    std::cout << "[DEBUG] Event loop exited." << std::endl;
 
     return 0;
 }

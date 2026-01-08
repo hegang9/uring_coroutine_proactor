@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 # 设置项目名称
 project(io_uring_test)
 
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # 设置 C++ 标准
 set(CMAKE_CXX_STANDARD 20)
 # 设置 C++ 标准为必需
@@ -35,6 +37,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
 
 # 1. 收集源文件 (排除入口文件)
 file(GLOB SRC_FILES "src/*.cpp")
+file(GLOB MEMORY_FILES "memory/*.cpp")
+list(APPEND SRC_FILES ${MEMORY_FILES})
 # 排除 test.cpp 作为库的一部分
 list(REMOVE_ITEM SRC_FILES "${CMAKE_SOURCE_DIR}/src/test.cpp")
 # 如果存在 main.cpp 也排除

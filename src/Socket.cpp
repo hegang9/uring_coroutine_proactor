@@ -11,7 +11,7 @@
 Socket::~Socket()
 {
     // 在这里真正的关闭连接socket或关闭监听socket并释放资源，TcpConnection中的断开连接只是逻辑上的断开
-    ::close(sockfd_);
+    closeFd();
 }
 
 void Socket::bindAddress(const InetAddress &localaddr)
@@ -112,4 +112,18 @@ void Socket::setKeepAlive(bool on)
 {
     int optval = on ? 1 : 0;
     ::setsockopt(sockfd_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval));
+}
+
+void Socket::closeFd()
+{
+    if (sockfd_ >= 0)
+    {
+        ::close(sockfd_);
+        sockfd_ = -1;
+    }
+}
+
+void Socket::reset()
+{
+    closeFd();
 }

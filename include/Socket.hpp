@@ -43,6 +43,11 @@ public:
     // 启用 TCP KeepAlive 机制，定期发送探测包以检测连接是否仍然有效，防止死连接占用资源。内核默认的心跳周期太长（2小时），对于即时通讯或高并发 Web 服务器来说太慢了。通常应用层会自己实现一套心跳机制（Application Level Heartbeat），比如每 30 秒发一个空包。
     void setKeepAlive(bool on);
 
+    // 主动关闭并清零 fd，防止重复 close 或复用脏 fd
+    void closeFd();
+
+    void reset(); // 重置Socket对象，防止复用内存池中的内存时还残留上一个Socket的脏数据
+
 private:
     int sockfd_; // socket 文件描述符
 };

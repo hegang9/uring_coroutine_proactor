@@ -1,5 +1,8 @@
 #include "MemoryPool.hpp"
 
+// 静态成员定义
+MemoryPool HashBucket::memoryPool[MEMORY_POOL_NUM];
+
 MemoryPool::MemoryPool(size_t blockSize)
     : blockSize_(blockSize),
       slotSize_(0),

@@ -3,6 +3,7 @@
 #include <coroutine>
 #include <exception>
 #include <utility>
+#include "MemoryPool.hpp"
 
 /**
  * @brief 简单的协程任务类 (Coroutine Return Object)
@@ -17,6 +18,7 @@ struct Task
         std::suspend_never final_suspend() noexcept { return {}; } // 协程结束后不挂起，立即销毁自身
         void return_void() {}                                      // 表示协程无返回值
         void unhandled_exception() { std::terminate(); }           // 协程出错时终止程序
+
     };
 
     std::coroutine_handle<promise_type> handle_;

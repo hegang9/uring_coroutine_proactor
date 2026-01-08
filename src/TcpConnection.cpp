@@ -23,11 +23,27 @@ TcpConnection::TcpConnection(const std::string &name, EventLoop *loop, int sockf
 TcpConnection::~TcpConnection()
 {
     // 逻辑关闭连接，调用socket的析构函数释放资源
+
 }
 
 void TcpConnection::setState(TcpConnectionState state)
 {
     state_.store(state);
+}
+
+void TcpConnection::reset() 
+{
+    loop_=nullptr;
+    socket_.reset();
+    state_.store(TcpConnectionState::kDisconnected);
+    reading_ = false;
+    inputBuffer_.reset();
+    outputBuffer_.reset();
+    // 读写上下文不需要重置fd，因为TcpConnection对象销毁时，fd已经关闭
+    readContext_.coro_handle = nullptr;
+    readContext_.result_ = 0;
+    writeContext_.coro_handle = nullptr;
+    writeContext_.result_ = 0;
 }
 
 void TcpConnection::shutdown()

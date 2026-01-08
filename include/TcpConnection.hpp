@@ -11,6 +11,7 @@
 #include "AsyncRead.hpp"
 #include "AsyncWrite.hpp"
 #include "EventLoop.hpp"
+#include "MemoryPool.hpp"
 
 // TCP连接状态枚举
 enum class TcpConnectionState
@@ -48,6 +49,9 @@ public:
 
     // 改变连接状态
     void setState(TcpConnectionState state);
+
+    // 重置TcpConnection，防止复用内存池中的内存时还残留上一个TcpConnection的脏数据
+    void reset();
 
     // 获取所属的 EventLoop
     EventLoop *getLoop() const { return loop_; };
