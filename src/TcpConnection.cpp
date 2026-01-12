@@ -1,8 +1,11 @@
 #include "TcpConnection.hpp"
-#include <cstring>
+
 #include <unistd.h>
 
-TcpConnection::TcpConnection(const std::string &name, EventLoop *loop, int sockfd, const InetAddress &peerAddr)
+#include <cstring>
+
+TcpConnection::TcpConnection(const std::string& name, EventLoop* loop,
+                             int sockfd, const InetAddress& peerAddr)
     : name_(name),
       loop_(loop),
       socket_(sockfd),
@@ -15,129 +18,115 @@ TcpConnection::TcpConnection(const std::string &name, EventLoop *loop, int sockf
       localAddr_(socket_.getLocalAddress()),
       peerAddr_(peerAddr),
       connectionCallback_(nullptr),
-      closeCallback_(nullptr)
-{
-    // 协程模式下，不需要绑定传统的回调函数 (handleRead/handleWrite)
+      closeCallback_(nullptr) {
+  // 协程模式下，不需要绑定传统的回调函数 (handleRead/handleWrite)
 }
 
-TcpConnection::~TcpConnection()
-{
-    // 逻辑关闭连接，调用socket的析构函数释放资源
-
+TcpConnection::~TcpConnection() {
+  // 逻辑关闭连接，调用socket的析构函数释放资源
 }
 
-void TcpConnection::setState(TcpConnectionState state)
-{
-    state_.store(state);
+void TcpConnection::setState(TcpConnectionState state) { state_.store(state); }
+
+void TcpConnection::reset() {
+  loop_ = nullptr;
+  socket_.reset();
+  state_.store(TcpConnectionState::kDisconnected);
+  reading_ = false;
+  inputBuffer_.reset();
+  outputBuffer_.reset();
+  // 读写上下文不需要重置fd，因为TcpConnection对象销毁时，fd已经关闭
+  readContext_.coro_handle = nullptr;
+  readContext_.result_ = 0;
+  writeContext_.coro_handle = nullptr;
+  writeContext_.result_ = 0;
 }
 
-void TcpConnection::reset() 
-{
-    loop_=nullptr;
-    socket_.reset();
-    state_.store(TcpConnectionState::kDisconnected);
-    reading_ = false;
-    inputBuffer_.reset();
-    outputBuffer_.reset();
-    // 读写上下文不需要重置fd，因为TcpConnection对象销毁时，fd已经关闭
-    readContext_.coro_handle = nullptr;
-    readContext_.result_ = 0;
-    writeContext_.coro_handle = nullptr;
-    writeContext_.result_ = 0;
+void TcpConnection::shutdown() {
+  // 发送FIN包，半关闭写端
+  if (state_.load() == TcpConnectionState::kConnected) {
+    setState(TcpConnectionState::kDisconnecting);
+    socket_.shutdownWrite();
+  }
 }
 
-void TcpConnection::shutdown()
-{
-    // 发送FIN包，半关闭写端
-    if (state_.load() == TcpConnectionState::kConnected)
-    {
-        setState(TcpConnectionState::kDisconnecting);
-        socket_.shutdownWrite();
-    }
+void TcpConnection::forceClose() {
+  TcpConnectionState expected = TcpConnectionState::kConnected;
+  if (state_.compare_exchange_strong(expected,
+                                     TcpConnectionState::kDisconnecting)) {
+    loop_->queueInLoop(
+        std::bind(&TcpConnection::handleClose, shared_from_this()));
+  }
+  // 如果已经是 kDisconnecting，不重复提交
 }
 
-void TcpConnection::forceClose()
-{
-    TcpConnectionState expected = TcpConnectionState::kConnected;
-    if (state_.compare_exchange_strong(expected, TcpConnectionState::kDisconnecting))
-    {
-        loop_->queueInLoop(std::bind(&TcpConnection::handleClose, shared_from_this()));
-    }
-    // 如果已经是 kDisconnecting，不重复提交
+void TcpConnection::submitReadRequest(size_t nbytes) {
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&loop_->ring_);
+  if (!sqe) {
+    // 极其罕见的情况：SQ 满了。
+    // 实际生产中可能需要处理，这里简单打印
+    fprintf(stderr, "TcpConnection::submitReadRequest: SQ full\n");
+    return;
+  }
+
+  // 准备读取nbytes字节的数据到 inputBuffer_
+  inputBuffer_.ensureWritableBytes(nbytes);  // 确保有足够的可写空间
+  io_uring_prep_read(sqe, socket_.getFd(), inputBuffer_.writeBeginAddr(),
+                     nbytes, 0);
+  io_uring_sqe_set_data(sqe, &readContext_);
+  // io_uring_submit(&loop_->ring_); // 移除，由 Loop 统一提交
 }
 
-void TcpConnection::submitReadRequest(size_t nbytes)
-{
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
-    if (!sqe)
-    {
-        // 极其罕见的情况：SQ 满了。
-        // 实际生产中可能需要处理，这里简单打印
-        fprintf(stderr, "TcpConnection::submitReadRequest: SQ full\n");
-        return;
-    }
+void TcpConnection::submitWriteRequest() {
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&loop_->ring_);
+  if (!sqe) {
+    // 极其罕见的情况：SQ 满了。
+    // 实际生产中可能需要处理，这里简单打印
+    fprintf(stderr, "TcpConnection::submitWriteRequest: SQ full\n");
+    return;
+  }
 
-    // 准备读取nbytes字节的数据到 inputBuffer_
-    inputBuffer_.ensureWritableBytes(nbytes); // 确保有足够的可写空间
-    io_uring_prep_read(sqe, socket_.getFd(), inputBuffer_.writeBeginAddr(), nbytes, 0);
-    io_uring_sqe_set_data(sqe, &readContext_);
-    int ret = io_uring_submit(&loop_->ring_);
-    if (ret < 0)
-    {
-        fprintf(stderr, "TcpConnection::submitReadRequest: io_uring_submit failed: %s\n", strerror(-ret));
-    }
+  // 准备写操作
+  // 注意：write 操作不应该修改 outputBuffer_
+  // 的可读位置，直到写操作完成（handleWrite）
+  io_uring_prep_write(sqe, socket_.getFd(), outputBuffer_.readBeginAddr(),
+                      outputBuffer_.readableBytes(), 0);
+  io_uring_sqe_set_data(sqe, &writeContext_);
+  // io_uring_submit(&loop_->ring_); // 移除，由 Loop 统一提交
+  /*
+  int ret = io_uring_submit(&loop_->ring_);
+  if (ret < 0)
+  {
+      fprintf(stderr, "TcpConnection::submitWriteRequest: io_uring_submit
+  failed: %s\n", strerror(-ret));
+  }
+  */
 }
 
-void TcpConnection::submitWriteRequest()
-{
-    struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
-    if (!sqe)
-    {
-        // 极其罕见的情况：SQ 满了。
-        // 实际生产中可能需要处理，这里简单打印
-        fprintf(stderr, "TcpConnection::submitWriteRequest: SQ full\n");
-        return;
-    }
-
-    // 准备写出 outputBuffer_ 中的数据
-    io_uring_prep_write(sqe, socket_.getFd(), outputBuffer_.readBeginAddr(), outputBuffer_.readableBytes(), 0);
-    io_uring_sqe_set_data(sqe, &writeContext_);
-    int ret = io_uring_submit(&loop_->ring_);
-    if (ret < 0)
-    {
-        fprintf(stderr, "TcpConnection::submitWriteRequest: io_uring_submit failed: %s\n", strerror(-ret));
-    }
+void TcpConnection::handleClose() {
+  // 保护 TcpConnection，防止在回调过程中被销毁
+  std::shared_ptr<TcpConnection> guard(shared_from_this());
+  if (closeCallback_) {
+    closeCallback_(guard);
+  }
 }
 
-void TcpConnection::handleClose()
-{
-    // 保护 TcpConnection，防止在回调过程中被销毁
-    std::shared_ptr<TcpConnection> guard(shared_from_this());
-    if (closeCallback_)
-    {
-        closeCallback_(guard);
-    }
+void TcpConnection::connectEstablished() {
+  // 将状态设置为已连接
+  setState(TcpConnectionState::kConnected);
+  // 这里调用 connectionCallback_
+  if (connectionCallback_) {
+    connectionCallback_(shared_from_this());
+  }
 }
 
-void TcpConnection::connectEstablished()
-{
-    // 将状态设置为已连接
-    setState(TcpConnectionState::kConnected);
-    // 这里调用 connectionCallback_
-    if (connectionCallback_)
-    {
-        connectionCallback_(shared_from_this());
-    }
-}
-
-void TcpConnection::connectDestroyed()
-{
-    if (state_ == TcpConnectionState::kConnected || state_ == TcpConnectionState::kDisconnecting)
-    {
-        setState(TcpConnectionState::kDisconnected);
-    }
-    // Socket 对象析构时会自动 close(fd)，
-    // io_uring 中挂起的请求会因为 fd 关闭而以 -ECANCELED 或 -EBADF 失败。
+void TcpConnection::connectDestroyed() {
+  if (state_ == TcpConnectionState::kConnected ||
+      state_ == TcpConnectionState::kDisconnecting) {
+    setState(TcpConnectionState::kDisconnected);
+  }
+  // Socket 对象析构时会自动 close(fd)，
+  // io_uring 中挂起的请求会因为 fd 关闭而以 -ECANCELED 或 -EBADF 失败。
 }
 
 // 协程模式下，这些回调如果不使用，可以留空。

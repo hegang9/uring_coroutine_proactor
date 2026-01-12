@@ -71,8 +71,8 @@ void Acceptor::asyncAccept()
     // 绑定上下文
     io_uring_sqe_set_data(sqe, &acceptContext_);
 
-    // 提交
-    io_uring_submit(&(acceptLoop_->ring_));
+    // 提交 - 移除，由 Loop 统一处理
+    // io_uring_submit(&(acceptLoop_->ring_));
 }
 
 void Acceptor::handleRead(int res)

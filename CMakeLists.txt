@@ -60,3 +60,7 @@ add_executable(proactor_test src/test.cpp)
 # 链接动态库
 target_link_libraries(proactor_test proactor_shared ${LIBURING_LIBRARIES} pthread)
 
+# 5. 应用层压测工具
+add_executable(echo_bench bench/echo_bench.cpp)
+target_link_libraries(echo_bench pthread)
+
