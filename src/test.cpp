@@ -32,10 +32,17 @@ Task echoTask(std::shared_ptr<TcpConnection> conn) {
       }
 
       // 2. 获取数据
-      std::string data = conn->getInputBuffer().readAllAsString();
+      // 性能优化：直接使用 Buffer 指针的操作，避免 std::string 的构造和拷贝
+      // 旧代码: std::string data = conn->getInputBuffer().readAllAsString();
+      auto& inputBuf = conn->getInputBuffer();
+      size_t len = inputBuf.readableBytes();
 
       // 3. 异步发送数据 (挂起，直到数据写完)
-      int written = co_await conn->asyncSend(data);
+      // asyncSend(const char*, size_t) 会把数据 append 到 outputBuffer
+      int written = co_await conn->asyncSend(inputBuf.readBeginAddr(), len);
+
+      // 数据已经拷贝到发送缓冲区，现在从接收缓冲区移除
+      inputBuf.retrieve(len);
 
       if (written < 0) {
         break;
