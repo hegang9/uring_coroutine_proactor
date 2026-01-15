@@ -150,6 +150,48 @@ void EventLoop::wakeup() {
   }
 }
 
+void EventLoop::initRegisteredBuffers() {
+  registeredBuffersPool.resize(registeredBuffersCount);
+  registeredIovecs.resize(registeredBuffersCount);
+  // 页对齐分配
+  for (int i = 0; i < registeredBuffersCount; ++i) {
+    void* ptr = nullptr;
+    if (posix_memalign(&ptr, 4096, registeredBuffersSize) != 0) {
+      throw std::bad_alloc();
+    }
+    registeredBuffersPool[i] = ptr;
+    registeredIovecs[i].iov_base = ptr;
+    registeredIovecs[i].iov_len = registeredBuffersSize;
+    freeBufferIndex_.push(i);
+  }
+  // 注册到 io_uring
+  int ret = io_uring_register_buffers(&ring_, registeredIovecs.data(),
+                                      registeredBuffersCount);
+  if (ret < 0) {
+    fprintf(stderr, "io_uring_register_buffers failed: %d\n", ret);
+  }
+}
+
+int EventLoop::getRegisteredBufferIndex() {
+  std::unique_lock<std::mutex> lg(bufferMutex_);
+  if (freeBufferIndex_.empty()) {
+    return -1;  // 没有可用缓冲区，自动解锁
+  }
+  int idx = freeBufferIndex_.front();
+  freeBufferIndex_.pop();
+  lg.unlock();
+  return idx;
+}
+
+void EventLoop::returnRegisteredBuffer(int idx) {
+  std::lock_guard<std::mutex> lg(bufferMutex_);
+  freeBufferIndex_.push(idx);
+}
+
+void* EventLoop::getRegisteredBuffer(int idx) {
+  return registeredBuffersPool[idx];
+}
+
 void EventLoop::handleWakeup() {
   // 重新提交 wakeup 读请求，以便下一次唤醒
   asyncReadWakeup();

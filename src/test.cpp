@@ -21,28 +21,24 @@ Task echoTask(std::shared_ptr<TcpConnection> conn) {
       // asyncRead 返回 AsyncReadAwaitable，co_await 会触发 submitReadRequest
       // 这里的 1024 是期望读取的最大字节数
       int n = co_await conn->asyncRead(1024);
+      // 可指定用户缓冲区版本：
+      // char userBuf[2048];
+      // int n = co_await conn->asyncRead(userBuf, sizeof(userBuf), 1024);
 
       if (n <= 0) {
         // n == 0: 对端关闭连接 (FIN)
         // n < 0:  发生错误
-        // std::cout << "[Coroutine] Connection closed by peer or error. res="
-        // << n
-        //           << " (" << peerIp << ")" << std::endl;
         break;
       }
 
       // 2. 获取数据
-      // 性能优化：直接使用 Buffer 指针的操作，避免 std::string 的构造和拷贝
-      // 旧代码: std::string data = conn->getInputBuffer().readAllAsString();
-      auto& inputBuf = conn->getInputBuffer();
-      size_t len = inputBuf.readableBytes();
+      auto [dataPtr, dataLen] = conn->getDataFromBuffer();
 
       // 3. 异步发送数据 (挂起，直到数据写完)
       // asyncSend(const char*, size_t) 会把数据 append 到 outputBuffer
-      int written = co_await conn->asyncSend(inputBuf.readBeginAddr(), len);
-
+      int written = co_await conn->asyncSend(dataPtr, dataLen);
       // 数据已经拷贝到发送缓冲区，现在从接收缓冲区移除
-      inputBuf.retrieve(len);
+      conn->releaseCurReadBuffer();
 
       if (written < 0) {
         break;

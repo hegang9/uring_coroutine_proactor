@@ -11,7 +11,9 @@ TcpConnection::TcpConnection(const std::string& name, EventLoop* loop,
       socket_(sockfd),
       state_(TcpConnectionState::kDisconnected),
       reading_(false),
-      inputBuffer_(),
+      curReadBuffer_(nullptr),
+      curReadBufferSize_(0),
+      curReadBufferOffset_(0),
       outputBuffer_(),
       readContext_(IoType::Read, sockfd),
       writeContext_(IoType::Write, sockfd),
@@ -29,17 +31,23 @@ TcpConnection::~TcpConnection() {
 void TcpConnection::setState(TcpConnectionState state) { state_.store(state); }
 
 void TcpConnection::reset() {
-  loop_ = nullptr;
   socket_.reset();
   state_.store(TcpConnectionState::kDisconnected);
   reading_ = false;
-  inputBuffer_.reset();
   outputBuffer_.reset();
   // 读写上下文不需要重置fd，因为TcpConnection对象销毁时，fd已经关闭
   readContext_.coro_handle = nullptr;
   readContext_.result_ = 0;
+  if (readContext_.idx >= 0) {
+    loop_->returnRegisteredBuffer(readContext_.idx);
+  }
+  readContext_.idx = -1;  // 重置 registered buffer 索引
+  curReadBuffer_ = nullptr;
+  curReadBufferSize_ = 0;
+  curReadBufferOffset_ = 0;
   writeContext_.coro_handle = nullptr;
   writeContext_.result_ = 0;
+  loop_ = nullptr;
 }
 
 void TcpConnection::shutdown() {
@@ -68,13 +76,44 @@ void TcpConnection::submitReadRequest(size_t nbytes) {
     fprintf(stderr, "TcpConnection::submitReadRequest: SQ full\n");
     return;
   }
+  int idx = loop_->getRegisteredBufferIndex();
+  if (idx >= 0) {
+    // 使用已注册缓冲区进行读操作
+    void* buf = loop_->getRegisteredBuffer(idx);
+    // 把已注册缓冲区的索引存到 IoContext 的 idx 字段，以便完成后归还
+    readContext_.idx = idx;
+    io_uring_prep_read_fixed(sqe, socket_.getFd(), buf, nbytes, 0, idx);
+    io_uring_sqe_set_data(sqe, &readContext_);
 
-  // 准备读取nbytes字节的数据到 inputBuffer_
-  inputBuffer_.ensureWritableBytes(nbytes);  // 确保有足够的可写空间
-  io_uring_prep_read(sqe, socket_.getFd(), inputBuffer_.writeBeginAddr(),
-                     nbytes, 0);
+  } else {
+    // TODO:扩容固定缓冲区
+  }
+}
+
+void TcpConnection::submitReadRequestWithUserBuffer(char* userBuf,
+                                                    size_t userBufCap,
+                                                    size_t nbytes) {
+  if (userBuf == nullptr || userBufCap == 0) {
+    // 无效的用户缓冲区，直接返回
+    fprintf(stderr,
+            "TcpConnection::submitReadRequestWithUserBuffer: invalid user "
+            "buffer\n");
+    return;
+  }
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&loop_->ring_);
+  if (!sqe) {
+    // 极其罕见的情况：SQ 满了。
+    // 实际生产中可能需要处理，这里简单打印
+    fprintf(stderr,
+            "TcpConnection::submitReadRequestWithUserBuffer: SQ full\n");
+    return;
+  }
+  // 使用用户提供的缓冲区进行读操作
+  io_uring_prep_read(sqe, socket_.getFd(), userBuf,
+                     std::min(userBufCap, nbytes), 0);
   io_uring_sqe_set_data(sqe, &readContext_);
-  // io_uring_submit(&loop_->ring_); // 移除，由 Loop 统一提交
+  // 标记 idx 为 -1，表示未使用已注册缓冲区
+  readContext_.idx = -1;
 }
 
 void TcpConnection::submitWriteRequest() {
@@ -88,19 +127,13 @@ void TcpConnection::submitWriteRequest() {
 
   // 准备写操作
   // 注意：write 操作不应该修改 outputBuffer_
-  // 的可读位置，直到写操作完成（handleWrite）
+  // 的可读位置，直到写操作完成(handleWrite)
   io_uring_prep_write(sqe, socket_.getFd(), outputBuffer_.readBeginAddr(),
                       outputBuffer_.readableBytes(), 0);
   io_uring_sqe_set_data(sqe, &writeContext_);
-  // io_uring_submit(&loop_->ring_); // 移除，由 Loop 统一提交
-  /*
-  int ret = io_uring_submit(&loop_->ring_);
-  if (ret < 0)
-  {
-      fprintf(stderr, "TcpConnection::submitWriteRequest: io_uring_submit
-  failed: %s\n", strerror(-ret));
-  }
-  */
+
+  // 注意：写操作不使用已注册缓冲区，因为数据在 outputBuffer_
+  // 中，且可能不是页对齐的
 }
 
 void TcpConnection::handleClose() {
@@ -109,6 +142,16 @@ void TcpConnection::handleClose() {
   if (closeCallback_) {
     closeCallback_(guard);
   }
+}
+
+void TcpConnection::releaseCurReadBuffer() {
+  if (readContext_.idx >= 0) {
+    loop_->returnRegisteredBuffer(readContext_.idx);
+    readContext_.idx = -1;  // 重置 idx，防止重复归还
+  }
+  curReadBuffer_ = nullptr;
+  curReadBufferSize_ = 0;
+  curReadBufferOffset_ = 0;
 }
 
 void TcpConnection::connectEstablished() {
