@@ -35,9 +35,9 @@ Task echoTask(std::shared_ptr<TcpConnection> conn) {
       auto [dataPtr, dataLen] = conn->getDataFromBuffer();
 
       // 3. 异步发送数据 (挂起，直到数据写完)
-      // asyncSend(const char*, size_t) 会把数据 append 到 outputBuffer
-      int written = co_await conn->asyncSend(dataPtr, dataLen);
-      // 数据已经拷贝到发送缓冲区，现在从接收缓冲区移除
+      // 零拷贝模式：直接从已注册缓冲区发送，不经过 outputBuffer_
+      int written = co_await conn->asyncSendZeroCopy();
+      // 发送完成后释放已注册缓冲区
       conn->releaseCurReadBuffer();
 
       if (written < 0) {
@@ -61,6 +61,9 @@ int main() {
   std::cout << "[DEBUG] Creating EventLoop..." << std::endl;
   EventLoop loop;
   std::cout << "[DEBUG] EventLoop created." << std::endl;
+
+  // 1.5 初始化注册缓冲区池
+  loop.initRegisteredBuffers();
 
   // 2. 设置监听地址
   std::cout << "[DEBUG] Creating InetAddress..." << std::endl;

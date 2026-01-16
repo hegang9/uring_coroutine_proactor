@@ -80,10 +80,12 @@ class EventLoop {
   std::vector<Functor> pendingFunctors_;  // 任务队列
   bool callingPendingFunctors_;           // 是否正在执行任务队列
 
-  static constexpr int registeredBuffersCount = 512;  // 注册缓冲区的数量
+  static constexpr int registeredBuffersCount =
+      512;  // 注册缓冲区的数量（避免超过 memlock 限制）
   static constexpr int registeredBuffersSize = 4096;  // 每个注册缓冲区的大小
   std::vector<void*> registeredBuffersPool;    // 缓冲区池，给TcpConnection复用
   std::vector<struct iovec> registeredIovecs;  // 注册到io_uring的iovec数组
-  std::queue<int> freeBufferIndex_;            // 可用缓冲区索引队列
-  std::mutex bufferMutex_;                     // 保护缓冲区池的互斥锁
+
+  // 极致性能优化：单线程模型下无需锁或原子操作，直接用 vector 当栈
+  std::vector<int> freeBufferIndices_;  // 可用缓冲区索引栈
 };

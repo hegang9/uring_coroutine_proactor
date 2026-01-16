@@ -50,9 +50,6 @@ void EventLoop::loop() {
   running_ = true;
   quit_ = false;
 
-  // std::cout << "[EventLoop] start loop, tid=" << std::this_thread::get_id()
-  //           << ", ring=" << &ring_ << std::endl;
-
   while (!quit_) {
     // 批量提交所有 Pending 的 SQE
     // 必须在等待之前提交，否则内核不知道有新请求，可能死锁
@@ -93,9 +90,6 @@ void EventLoop::quit() {
   if (::gettid() != threadId_) {
     wakeup();
   }
-
-  // std::cout << "[EventLoop] stop loop, tid=" << std::this_thread::get_id() <<
-  // std::endl;
 }
 
 void EventLoop::runInLoop(Functor cb) {
@@ -131,9 +125,6 @@ void EventLoop::handleCompletionEvent(io_uring_cqe* cqe) {
   // 优先检查是否是协程模式
   if (ctx->coro_handle) {
     // 协程模式：保存结果到 Awaitable 对象，然后恢复协程
-    // std::cout << "[Coroutine] resume on tid=" << std::this_thread::get_id()
-    //           << ", type=" << static_cast<int>(ctx->type)
-    //           << ", result=" << result << std::endl;
     ctx->coro_handle.resume();  // 恢复协程执行
   } else if (ctx->handler) {
     // 传统回调模式
@@ -153,6 +144,8 @@ void EventLoop::wakeup() {
 void EventLoop::initRegisteredBuffers() {
   registeredBuffersPool.resize(registeredBuffersCount);
   registeredIovecs.resize(registeredBuffersCount);
+  freeBufferIndices_.reserve(registeredBuffersCount);
+
   // 页对齐分配
   for (int i = 0; i < registeredBuffersCount; ++i) {
     void* ptr = nullptr;
@@ -162,7 +155,7 @@ void EventLoop::initRegisteredBuffers() {
     registeredBuffersPool[i] = ptr;
     registeredIovecs[i].iov_base = ptr;
     registeredIovecs[i].iov_len = registeredBuffersSize;
-    freeBufferIndex_.push(i);
+    freeBufferIndices_.push_back(i);
   }
   // 注册到 io_uring
   int ret = io_uring_register_buffers(&ring_, registeredIovecs.data(),
@@ -173,19 +166,18 @@ void EventLoop::initRegisteredBuffers() {
 }
 
 int EventLoop::getRegisteredBufferIndex() {
-  std::unique_lock<std::mutex> lg(bufferMutex_);
-  if (freeBufferIndex_.empty()) {
-    return -1;  // 没有可用缓冲区，自动解锁
+  // 单线程无锁操作：直接操作 vector 尾部，O(1) 且无竞争
+  if (freeBufferIndices_.empty()) {
+    return -1;
   }
-  int idx = freeBufferIndex_.front();
-  freeBufferIndex_.pop();
-  lg.unlock();
+  int idx = freeBufferIndices_.back();
+  freeBufferIndices_.pop_back();
   return idx;
 }
 
 void EventLoop::returnRegisteredBuffer(int idx) {
-  std::lock_guard<std::mutex> lg(bufferMutex_);
-  freeBufferIndex_.push(idx);
+  // 单线程无锁操作
+  freeBufferIndices_.push_back(idx);
 }
 
 void* EventLoop::getRegisteredBuffer(int idx) {

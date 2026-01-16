@@ -19,3 +19,5 @@ make -j"$(nproc)"
 
 ## 连接命令
 nc 127.0.0.1 8888
+
+sudo sh -c "ulimit -n 100000 && ulimit -l unlimited && ./proactor_test"

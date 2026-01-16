@@ -75,6 +75,7 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
   void submitReadRequestWithUserBuffer(char* userBuf, size_t userBufCap,
                                        size_t nbytes);
   void submitWriteRequest();
+  void submitWriteRequestWithRegBuffer(void* buf, size_t len, int idx);
 
   // 异步读写操作的协程接口，创建 Awaitable
   // 对象（这个Awaitable对象包含了读或写操作所需的所有参数），当使用co_await时会触发await_suspend提交io_uring请求
@@ -95,6 +96,14 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection> {
   AsyncWriteAwaitable asyncSend(const char* data, size_t len) {
     outputBuffer_.append(data, len);
     return asyncWrite();
+  }
+
+  // 零拷贝发送：直接从已注册缓冲区发送数据，不经过 outputBuffer_
+  // 通常用于 Echo 等场景：读到的数据直接原样发回
+  AsyncWriteAwaitable asyncSendZeroCopy() {
+    // 使用当前读缓冲区的数据直接发送
+    return AsyncWriteAwaitable(this, curReadBuffer_, curReadBufferSize_,
+                               readContext_.idx);
   }
 
   // 提供获取IoContext的接口

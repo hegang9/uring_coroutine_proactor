@@ -86,7 +86,10 @@ void TcpConnection::submitReadRequest(size_t nbytes) {
     io_uring_sqe_set_data(sqe, &readContext_);
 
   } else {
-    // TODO:扩容固定缓冲区
+    // 输出错误信息
+    fprintf(
+        stderr,
+        "TcpConnection::submitReadRequest: no registered buffer available\n");
   }
 }
 
@@ -131,9 +134,24 @@ void TcpConnection::submitWriteRequest() {
   io_uring_prep_write(sqe, socket_.getFd(), outputBuffer_.readBeginAddr(),
                       outputBuffer_.readableBytes(), 0);
   io_uring_sqe_set_data(sqe, &writeContext_);
+  // 标记未使用已注册缓冲区
+  writeContext_.idx = -1;
+}
 
-  // 注意：写操作不使用已注册缓冲区，因为数据在 outputBuffer_
-  // 中，且可能不是页对齐的
+void TcpConnection::submitWriteRequestWithRegBuffer(void* buf, size_t len,
+                                                    int idx) {
+  struct io_uring_sqe* sqe = io_uring_get_sqe(&loop_->ring_);
+  if (!sqe) {
+    fprintf(stderr,
+            "TcpConnection::submitWriteRequestWithRegBuffer: SQ full\n");
+    return;
+  }
+
+  // 使用已注册缓冲区进行零拷贝写操作
+  io_uring_prep_write_fixed(sqe, socket_.getFd(), buf, len, 0, idx);
+  io_uring_sqe_set_data(sqe, &writeContext_);
+  // 记录已注册缓冲区索引，写完后由调用者归还
+  writeContext_.idx = idx;
 }
 
 void TcpConnection::handleClose() {
