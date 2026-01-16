@@ -91,7 +91,9 @@ int main() {
 
   // 5. 启动服务器
   std::cout << "[DEBUG] Setting thread num..." << std::endl;
-  server.setThreadNum(28);  // 创建 28 个工作线程
+  // SQPOLL 模式下，每个 Loop 会额外占用一个内核 Polling 线程
+  // 所以 Worker 线程数建议设置为物理核心数的一半，以避免 CPU 竞争
+  server.setThreadNum(8);
   std::cout << "[DEBUG] Thread num set. Starting server..." << std::endl;
   server.start();
   std::cout << "[DEBUG] Server started." << std::endl;

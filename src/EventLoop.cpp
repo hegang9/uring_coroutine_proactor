@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstring>
 #include <iostream>
 #include <thread>
 
@@ -26,9 +27,16 @@ EventLoop::EventLoop()
     abort();
   }
 
-  // 初始化 io_uring，队列深度设为
-  // 4096，这里不设置IORING_SETUP_SQPOLL，因为在多线程环境下会产生多个内核线程专门用于轮询，这样可能会严重抢占业务逻辑的CPU时间片，导致上下文切换频繁，反而降低性能
-  int ret = io_uring_queue_init(4096, &ring_, 0);
+  // 初始化 io_uring，队列深度设为 4096
+  // 开启 IORING_SETUP_SQPOLL 以消除 io_uring_submit 的系统调用开销
+  // 这会启动一个内核线程来轮询 SQ Ring，极大提升高频小包场景的吞吐量
+  struct io_uring_params params;
+  memset(&params, 0, sizeof(params));
+  params.flags = IORING_SETUP_SQPOLL;
+  // 设置空闲超时时间，单位毫秒（默认2000ms），这里设为 2000
+  params.sq_thread_idle = 2000;
+
+  int ret = io_uring_queue_init_params(4096, &ring_, &params);
   if (ret < 0) {
     fprintf(stderr, "io_uring_queue_init failed: %d\n", ret);
     abort();
