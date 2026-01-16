@@ -33,8 +33,10 @@ EventLoop::EventLoop()
   struct io_uring_params params;
   memset(&params, 0, sizeof(params));
   params.flags = IORING_SETUP_SQPOLL;
-  // 设置空闲超时时间，单位毫秒（默认2000ms），这里设为 2000
-  params.sq_thread_idle = 2000;
+  // 设置空闲超时时间，单位毫秒
+  // 减小到 100ms 以快速进入睡眠，减少空转时的 CPU 浪费
+  // 高负载时会持续轮询，低负载时及时休眠
+  params.sq_thread_idle = 100;
 
   int ret = io_uring_queue_init_params(4096, &ring_, &params);
   if (ret < 0) {
