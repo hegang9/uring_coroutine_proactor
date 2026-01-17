@@ -1,7 +1,9 @@
 #include <chrono>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 
 #include "CoroutineTask.hpp"
@@ -11,6 +13,180 @@
 #include "TcpConnection.hpp"
 #include "TcpServer.hpp"
 
+// ===================== 简单的 HTTP 解析器 =====================
+// 解析 HTTP 请求，提取请求体（如果有）
+struct HttpRequest {
+  std::string_view method;
+  std::string_view path;
+  std::string_view body;
+  size_t contentLength = 0;
+  bool keepAlive = true;
+  bool complete = false;
+
+  // 解析 HTTP 请求
+  // 返回已消费的字节数，如果请求不完整返回 0
+  size_t parse(const char* data, size_t len) {
+    std::string_view sv(data, len);
+
+    // 查找请求头结束位置 "\r\n\r\n"
+    size_t headerEnd = sv.find("\r\n\r\n");
+    if (headerEnd == std::string_view::npos) {
+      return 0;  // 请求头不完整
+    }
+
+    // 解析请求行
+    size_t firstLineEnd = sv.find("\r\n");
+    std::string_view requestLine = sv.substr(0, firstLineEnd);
+
+    // 提取 method
+    size_t methodEnd = requestLine.find(' ');
+    if (methodEnd == std::string_view::npos) return 0;
+    method = requestLine.substr(0, methodEnd);
+
+    // 提取 path
+    size_t pathStart = methodEnd + 1;
+    size_t pathEnd = requestLine.find(' ', pathStart);
+    if (pathEnd == std::string_view::npos) return 0;
+    path = requestLine.substr(pathStart, pathEnd - pathStart);
+
+    // 解析 Content-Length
+    contentLength = 0;
+    size_t clPos = sv.find("Content-Length:");
+    if (clPos == std::string_view::npos) {
+      clPos = sv.find("content-length:");
+    }
+    if (clPos != std::string_view::npos && clPos < headerEnd) {
+      size_t valueStart = clPos + 15;  // "Content-Length:" 长度
+      while (valueStart < headerEnd && sv[valueStart] == ' ') valueStart++;
+      size_t valueEnd = sv.find("\r\n", valueStart);
+      if (valueEnd != std::string_view::npos) {
+        std::string_view clValue = sv.substr(valueStart, valueEnd - valueStart);
+        contentLength = 0;
+        for (char c : clValue) {
+          if (c >= '0' && c <= '9') {
+            contentLength = contentLength * 10 + (c - '0');
+          } else {
+            break;
+          }
+        }
+      }
+    }
+
+    // 检查 Connection: keep-alive / close
+    keepAlive = true;
+    size_t connPos = sv.find("Connection:");
+    if (connPos == std::string_view::npos) {
+      connPos = sv.find("connection:");
+    }
+    if (connPos != std::string_view::npos && connPos < headerEnd) {
+      size_t valueStart = connPos + 11;
+      size_t valueEnd = sv.find("\r\n", valueStart);
+      if (valueEnd != std::string_view::npos) {
+        std::string_view connValue =
+            sv.substr(valueStart, valueEnd - valueStart);
+        if (connValue.find("close") != std::string_view::npos) {
+          keepAlive = false;
+        }
+      }
+    }
+
+    // 计算请求总长度
+    size_t totalLen = headerEnd + 4 + contentLength;
+    if (len < totalLen) {
+      return 0;  // 请求体不完整
+    }
+
+    // 提取请求体
+    if (contentLength > 0) {
+      body = sv.substr(headerEnd + 4, contentLength);
+    } else {
+      body = std::string_view();
+    }
+
+    complete = true;
+    return totalLen;
+  }
+};
+
+// 构建 HTTP 响应
+std::string buildHttpResponse(std::string_view body, bool keepAlive = true) {
+  std::string response;
+  response.reserve(256 + body.size());
+
+  response += "HTTP/1.1 200 OK\r\n";
+  response += "Content-Type: text/plain\r\n";
+  response += "Content-Length: ";
+  response += std::to_string(body.size());
+  response += "\r\n";
+  response +=
+      keepAlive ? "Connection: keep-alive\r\n" : "Connection: close\r\n";
+  response += "\r\n";
+  response += body;
+
+  return response;
+}
+
+// ===================== HTTP Echo 协程任务 =====================
+Task httpEchoTask(std::shared_ptr<TcpConnection> conn) {
+  try {
+    std::string buffer;  // 用于累积不完整的请求
+
+    while (true) {
+      // 1. 异步读取数据
+      int n = co_await conn->asyncRead(4096);
+
+      if (n <= 0) {
+        break;
+      }
+
+      // 2. 获取数据并追加到缓冲区
+      auto [dataPtr, dataLen] = conn->getDataFromBuffer();
+      buffer.append(dataPtr, dataLen);
+
+      // 释放读缓冲区
+      conn->releaseCurReadBuffer();
+
+      // 3. 尝试解析完整的 HTTP 请求
+      while (!buffer.empty()) {
+        HttpRequest req;
+        size_t consumed = req.parse(buffer.data(), buffer.size());
+
+        if (consumed == 0) {
+          // 请求不完整，等待更多数据
+          break;
+        }
+
+        // 4. 构建 HTTP 响应（Echo: 将请求体原样返回）
+        // 如果没有请求体，返回 "Hello from Proactor!"
+        std::string_view responseBody =
+            req.body.empty() ? std::string_view("Hello from Proactor!")
+                             : req.body;
+        std::string response = buildHttpResponse(responseBody, req.keepAlive);
+
+        // 5. 发送响应
+        int written = co_await conn->asyncSend(response);
+        if (written < 0) {
+          co_return;
+        }
+
+        // 6. 移除已处理的请求数据
+        buffer.erase(0, consumed);
+
+        // 7. 如果客户端请求关闭连接，则退出
+        if (!req.keepAlive) {
+          conn->forceClose();
+          co_return;
+        }
+      }
+    }
+  } catch (const std::exception& e) {
+    std::cout << "[HTTP] Error: " << e.what() << std::endl;
+  }
+
+  conn->forceClose();
+}
+
+// ===================== 原始 Echo 协程任务（保留） =====================
 // 协程业务逻辑：Echo 服务
 // 这是一个协程函数，因为它返回 Task 并且使用了 co_await
 // Tcp粘包和拆包问题应该在应用层进行处理
@@ -80,12 +256,9 @@ int main() {
   // 我们在这里启动协程来处理这个连接
   std::cout << "[DEBUG] Setting connection callback..." << std::endl;
   server.setConnectionCallback([](const std::shared_ptr<TcpConnection>& conn) {
-    // 启动协程 (Fire and Forget)
-    // echoTask 返回一个 Task 对象，该对象在这一行结束时析构。
-    // 但由于 Task::promise_type::final_suspend 返回 std::suspend_never，
-    // 且协程句柄被保存在 IoContext 中（通过 await_suspend），
-    // 所以协程会继续存活，直到函数体执行完毕。
-    echoTask(conn);
+    // 启动 HTTP Echo 协程 (Fire and Forget)
+    // 使用 httpEchoTask 处理 HTTP 请求
+    httpEchoTask(conn);
   });
   std::cout << "[DEBUG] Connection callback set." << std::endl;
 
