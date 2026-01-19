@@ -16,216 +16,257 @@
 // }
 
 EventLoop::EventLoop()
-    : running_(false),
-      quit_(false),
-      threadId_(::gettid()),
-      wakeupFd_(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)),
-      wakeupContext_(IoType::Read, wakeupFd_),
-      callingPendingFunctors_(false) {
-  if (wakeupFd_ < 0) {
-    perror("eventfd");
-    abort();
-  }
-
-  // 初始化 io_uring，队列深度设为 4096
-  // 开启 IORING_SETUP_SQPOLL 以消除 io_uring_submit 的系统调用开销
-  // 这会启动一个内核线程来轮询 SQ Ring，极大提升高频小包场景的吞吐量
-  struct io_uring_params params;
-  memset(&params, 0, sizeof(params));
-  params.flags = IORING_SETUP_SQPOLL;
-  // 设置空闲超时时间，单位毫秒
-  // 减小到 100ms 以快速进入睡眠，减少空转时的 CPU 浪费
-  // 高负载时会持续轮询，低负载时及时休眠
-  params.sq_thread_idle = 100;
-
-  int ret = io_uring_queue_init_params(4096, &ring_, &params);
-  if (ret < 0) {
-    fprintf(stderr, "io_uring_queue_init failed: %d\n", ret);
-    abort();
-  }
-
-  // 设置 io_uring I/O完成的回调
-  wakeupContext_.handler = std::bind(&EventLoop::handleWakeup, this);
-
-  // 提交第一个 wakeup 读请求
-  asyncReadWakeup();
-}
-
-EventLoop::~EventLoop() {
-  ::close(wakeupFd_);
-  io_uring_queue_exit(&ring_);
-}
-
-void EventLoop::loop() {
-  running_ = true;
-  quit_ = false;
-
-  while (!quit_) {
-    // 批量提交所有 Pending 的 SQE
-    // 必须在等待之前提交，否则内核不知道有新请求，可能死锁
-    io_uring_submit(&ring_);
-
-    struct io_uring_cqe* cqe;
-    // 等待至少一个事件完成
-    int ret = io_uring_wait_cqe(&ring_, &cqe);
-
-    if (ret < 0) {
-      if (ret == -EINTR) continue;  // 被信号中断
-      fprintf(stderr, "io_uring_wait_cqe error: %d\n", ret);
-      break;
+    : running_(false), quit_(false), threadId_(::gettid()), wakeupFd_(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)),
+      wakeupContext_(IoType::Read, wakeupFd_), callingPendingFunctors_(false), pendingFunctors_{65536}
+{
+    if (wakeupFd_ < 0)
+    {
+        perror("eventfd");
+        abort();
     }
 
-    // 处理完成队列中的所有事件
-    unsigned head;       // CQE 队列头
-    unsigned count = 0;  // 完成的事件数量
+    // 初始化 io_uring，队列深度设为 4096
+    // 开启 IORING_SETUP_SQPOLL 以消除 io_uring_submit 的系统调用开销
+    // 这会启动一个内核线程来轮询 SQ Ring，极大提升高频小包场景的吞吐量
+    struct io_uring_params params;
+    memset(&params, 0, sizeof(params));
+    params.flags = IORING_SETUP_SQPOLL;
+    // 设置空闲超时时间，单位毫秒
+    // 减小到 50ms 以快速进入睡眠，减少空转时的 CPU 浪费
+    // 高负载时会持续轮询，低负载时及时休眠
+    params.sq_thread_idle = 50;
 
-    // 批量遍历 CQE
-    io_uring_for_each_cqe(&ring_, head, cqe) {
-      count++;
-      handleCompletionEvent(cqe);
+    int ret = io_uring_queue_init_params(8192, &ring_, &params);
+    if (ret < 0)
+    {
+        fprintf(stderr, "io_uring_queue_init failed: %d\n", ret);
+        abort();
     }
 
-    // 推进 CQ 队列
-    io_uring_cq_advance(&ring_, count);
+    // 设置 io_uring I/O完成的回调
+    wakeupContext_.handler = std::bind(&EventLoop::handleWakeup, this);
 
-    // 执行任务队列中的任务
-    doPendingFunctors();
-  }
-
-  running_ = false;
+    // 提交第一个 wakeup 读请求
+    asyncReadWakeup();
 }
 
-void EventLoop::quit() {
-  quit_ = true;
-  if (::gettid() != threadId_) {
-    wakeup();
-  }
+EventLoop::~EventLoop()
+{
+    ::close(wakeupFd_);
+    io_uring_queue_exit(&ring_);
 }
 
-void EventLoop::runInLoop(Functor cb) {
-  if (::gettid() == threadId_) {
-    cb();
-  } else {
-    queueInLoop(std::move(cb));
-  }
+void EventLoop::loop()
+{
+    running_ = true;
+    quit_ = false;
+
+    while (!quit_)
+    {
+        // 批量提交所有 Pending 的 SQE
+        // 必须在等待之前提交，否则内核不知道有新请求，可能死锁
+        io_uring_submit(&ring_);
+
+        struct io_uring_cqe *cqe;
+        // 等待至少一个事件完成
+        int ret = io_uring_wait_cqe(&ring_, &cqe);
+
+        if (ret < 0)
+        {
+            if (ret == -EINTR)
+                continue; // 被信号中断
+            fprintf(stderr, "io_uring_wait_cqe error: %d\n", ret);
+            break;
+        }
+
+        // 处理完成队列中的所有事件
+        unsigned head;      // CQE 队列头
+        unsigned count = 0; // 完成的事件数量
+
+        // 批量遍历 CQE
+        io_uring_for_each_cqe(&ring_, head, cqe)
+        {
+            count++;
+            handleCompletionEvent(cqe);
+        }
+
+        // 推进 CQ 队列
+        io_uring_cq_advance(&ring_, count);
+
+        // 执行任务队列中的任务
+        doPendingFunctors();
+    }
+
+    running_ = false;
 }
 
-void EventLoop::queueInLoop(Functor cb) {
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    pendingFunctors_.emplace_back(std::move(cb));
-  }
-
-  // 如果不在当前线程，或者当前正在执行 pendingFunctors，都需要唤醒
-  if (::gettid() != threadId_ || callingPendingFunctors_) {
-    wakeup();
-  }
+void EventLoop::quit()
+{
+    quit_ = true;
+    if (::gettid() != threadId_)
+    {
+        wakeup();
+    }
 }
 
-void EventLoop::handleCompletionEvent(io_uring_cqe* cqe) {
-  void* data = io_uring_cqe_get_data(cqe);
-  if (!data)  // 安全检查
-  {
-    return;
-  }
-  IoContext* ctx = static_cast<IoContext*>(data);
-  int result = cqe->res;
-  ctx->result_ = result;
+void EventLoop::runInLoop(Functor cb)
+{
+    if (::gettid() == threadId_)
+    {
+        cb();
+    }
+    else
+    {
+        queueInLoop(std::move(cb));
+    }
+}
 
-  // 优先检查是否是协程模式
-  if (ctx->coro_handle) {
-    // 协程模式：保存结果到 Awaitable 对象，然后恢复协程
-    ctx->coro_handle.resume();  // 恢复协程执行
-  } else if (ctx->handler) {
-    // 传统回调模式
-    ctx->handler(result);
-  }
+void EventLoop::queueInLoop(Functor cb)
+{
+    if (!pendingFunctors_.enqueue(std::move(cb)))
+    {
+        // 队列满了，处理策略（可以阻塞重试或抛异常）
+        // TODO:处理队列满了的情况
+    }
+
+    // 如果不在当前线程，或者当前正在执行 pendingFunctors，都需要唤醒
+    if (::gettid() != threadId_ || callingPendingFunctors_)
+    {
+        wakeup();
+    }
+}
+
+void EventLoop::handleCompletionEvent(io_uring_cqe *cqe)
+{
+    void *data = io_uring_cqe_get_data(cqe);
+    if (!data) // 安全检查
+    {
+        return;
+    }
+    IoContext *ctx = static_cast<IoContext *>(data);
+    int result = cqe->res;
+    ctx->result_ = result;
+
+    // 优先检查是否是协程模式
+    if (ctx->coro_handle)
+    {
+        // 协程模式：保存结果到 Awaitable 对象，然后恢复协程
+        ctx->coro_handle.resume(); // 恢复协程执行
+    }
+    else if (ctx->handler)
+    {
+        // 传统回调模式
+        ctx->handler(result);
+    }
 }
 
 // 写eventfd以唤醒子线程EventLoop循环
-void EventLoop::wakeup() {
-  uint64_t one = 1;
-  ssize_t n = ::write(wakeupFd_, &one, sizeof(one));
-  if (n != sizeof(one)) {
-    perror("EventLoop::wakeup write");
-  }
-}
-
-void EventLoop::initRegisteredBuffers() {
-  registeredBuffersPool.resize(registeredBuffersCount);
-  registeredIovecs.resize(registeredBuffersCount);
-  freeBufferIndices_.reserve(registeredBuffersCount);
-
-  // 页对齐分配
-  for (int i = 0; i < registeredBuffersCount; ++i) {
-    void* ptr = nullptr;
-    if (posix_memalign(&ptr, 4096, registeredBuffersSize) != 0) {
-      throw std::bad_alloc();
+void EventLoop::wakeup()
+{
+    uint64_t one = 1;
+    ssize_t n = ::write(wakeupFd_, &one, sizeof(one));
+    if (n != sizeof(one))
+    {
+        perror("EventLoop::wakeup write");
     }
-    registeredBuffersPool[i] = ptr;
-    registeredIovecs[i].iov_base = ptr;
-    registeredIovecs[i].iov_len = registeredBuffersSize;
-    freeBufferIndices_.push_back(i);
-  }
-  // 注册到 io_uring
-  int ret = io_uring_register_buffers(&ring_, registeredIovecs.data(),
-                                      registeredBuffersCount);
-  if (ret < 0) {
-    fprintf(stderr, "io_uring_register_buffers failed: %d\n", ret);
-  }
 }
 
-int EventLoop::getRegisteredBufferIndex() {
-  // 单线程无锁操作：直接操作 vector 尾部，O(1) 且无竞争
-  if (freeBufferIndices_.empty()) {
-    return -1;
-  }
-  int idx = freeBufferIndices_.back();
-  freeBufferIndices_.pop_back();
-  return idx;
+void EventLoop::initRegisteredBuffers()
+{
+    registeredBuffersPool.resize(registeredBuffersCount);
+    registeredIovecs.resize(registeredBuffersCount);
+    freeBufferIndices_.reserve(registeredBuffersCount);
+
+    // 页对齐分配
+    for (int i = 0; i < registeredBuffersCount; ++i)
+    {
+        void *ptr = nullptr;
+        if (posix_memalign(&ptr, 4096, registeredBuffersSize) != 0)
+        {
+            throw std::bad_alloc();
+        }
+        registeredBuffersPool[i] = ptr;
+        registeredIovecs[i].iov_base = ptr;
+        registeredIovecs[i].iov_len = registeredBuffersSize;
+        freeBufferIndices_.push_back(i);
+    }
+    // 注册到 io_uring
+    int ret = io_uring_register_buffers(&ring_, registeredIovecs.data(), registeredBuffersCount);
+    if (ret < 0)
+    {
+        fprintf(stderr, "io_uring_register_buffers failed: %d\n", ret);
+    }
 }
 
-void EventLoop::returnRegisteredBuffer(int idx) {
-  // 单线程无锁操作
-  freeBufferIndices_.push_back(idx);
+int EventLoop::getRegisteredBufferIndex()
+{
+    // 单线程无锁操作：直接操作 vector 尾部，O(1) 且无竞争
+    if (freeBufferIndices_.empty())
+    {
+        return -1;
+    }
+    int idx = freeBufferIndices_.back();
+    freeBufferIndices_.pop_back();
+    return idx;
 }
 
-void* EventLoop::getRegisteredBuffer(int idx) {
-  return registeredBuffersPool[idx];
+void EventLoop::returnRegisteredBuffer(int idx)
+{
+    // 单线程无锁操作
+    freeBufferIndices_.push_back(idx);
 }
 
-void EventLoop::handleWakeup() {
-  // 重新提交 wakeup 读请求，以便下一次唤醒
-  asyncReadWakeup();
+void *EventLoop::getRegisteredBuffer(int idx)
+{
+    return registeredBuffersPool[idx];
 }
 
-void EventLoop::asyncReadWakeup() {
-  struct io_uring_sqe* sqe = io_uring_get_sqe(&ring_);
-  if (!sqe) {
-    // 极其罕见的情况：SQ 满了。
-    // 实际生产中可能需要处理，这里简单打印
-    fprintf(stderr, "EventLoop::asyncReadWakeup: SQ full\n");
-    return;
-  }
-
-  // 准备读取 eventfd
-  io_uring_prep_read(sqe, wakeupFd_, &wakeupBuffer_, sizeof(uint64_t), 0);
-  io_uring_sqe_set_data(sqe, &wakeupContext_);
-  // io_uring_submit(&ring_); // 移除通过 Loop 统一提交
+void EventLoop::handleWakeup()
+{
+    // 重新提交 wakeup 读请求，以便下一次唤醒
+    asyncReadWakeup();
 }
 
-void EventLoop::doPendingFunctors() {
-  std::vector<Functor> functors;
-  callingPendingFunctors_ = true;
+void EventLoop::asyncReadWakeup()
+{
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&ring_);
+    if (!sqe)
+    {
+        // 极其罕见的情况：SQ 满了。
+        // 实际生产中可能需要处理，这里简单打印
+        fprintf(stderr, "EventLoop::asyncReadWakeup: SQ full\n");
+        return;
+    }
 
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    functors.swap(pendingFunctors_);
-  }
+    // 准备读取 eventfd
+    io_uring_prep_read(sqe, wakeupFd_, &wakeupBuffer_, sizeof(uint64_t), 0);
+    io_uring_sqe_set_data(sqe, &wakeupContext_);
+    // io_uring_submit(&ring_); // 移除通过 Loop 统一提交
+}
 
-  for (const auto& func : functors) {
-    func();
-  }
+void EventLoop::doPendingFunctors()
+{
+    callingPendingFunctors_ = true;
 
-  callingPendingFunctors_ = false;
+    // 批量出队到本地
+    std::vector<Functor> functors;
+    // 预留足够空间，避免频繁分配
+    functors.reserve(4096); 
+    
+    Functor f;
+    // 关键修复：移除大小限制，尽可能排空队列，防止积压
+    // 为了防止饿死IO，可以设一个较大的上限 (如 65536)
+    int limit = 65536;
+    while (limit-- > 0 && pendingFunctors_.dequeue(f))
+    {
+        functors.emplace_back(std::move(f));
+    }
+
+    // 无锁执行（此时生产者仍可入队到剩余队列）
+    for (auto &func : functors)
+    {
+        func();
+    }
+
+    callingPendingFunctors_ = false;
 }

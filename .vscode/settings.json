@@ -34,9 +34,12 @@
     },
     
     // ====== Clang-Format 配置 ======
-    "C_Cpp.clang_format_fallbackStyle": "Google",
+    "C_Cpp.clang_format_fallbackStyle": "Microsoft",
     
     // ====== 禁用可能导致问题的扩展功能 ======
     "C_Cpp.autocompleteAddParentheses": true,
-    "C_Cpp.autocomplete": "default"
+    "C_Cpp.autocomplete": "default",
+    "editor.formatOnPaste": true,
+    "C_Cpp.vcFormat.indent.accessSpecifiers": true,
+    "C_Cpp.vcFormat.indent.braces": true
 }

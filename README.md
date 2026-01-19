@@ -23,7 +23,7 @@ nc 127.0.0.1 8888
 sudo sh -c "ulimit -n 100000 && ulimit -l unlimited && ./proactor_test"
 
 # 服务器
-cd /home/hegang/UCP/bin && sudo ./proactor_test
+cd /home/hegang/UCP/bin && sudo sh -c "ulimit -n 100000 && ulimit -l unlimited && ./proactor_test"
 
 # 压测端
 ./stress_test.sh

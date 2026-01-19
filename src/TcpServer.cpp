@@ -58,9 +58,6 @@ void TcpServer::newConnection(int sockfd, const InetAddress& peerAddr) {
   // 创建 TcpConnection 对象，使用 shared_ptr 管理生命周期
   auto conn =
       std::make_shared<TcpConnection>(connName, ioLoop, sockfd, peerAddr);
-  // std::cout << "[Server] new connection " << connName << " assigned to loop="
-  // << ioLoop
-  //           << ", accept tid=" << std::this_thread::get_id() << std::endl;
   // 设置业务逻辑回调函数
   conn->setConnectionCallback(connectionCallback_);
   // 设置关闭连接时的回调函数
