@@ -144,6 +144,20 @@ void EventLoop::handleCompletionEvent(io_uring_cqe *cqe)
         return;
     }
     IoContext *ctx = static_cast<IoContext *>(data);
+
+    // Cancel CQE 安全检查：如果 IoContext 绑定了 TcpConnection，检查连接是否还活着
+    // 只有 TcpConnection 的读写 IO 才绑定了 connection（Acceptor/Wakeup 的 connection 为空）
+    if (ctx->connection.owner_before(std::weak_ptr<TcpConnection>{}) ||
+        std::weak_ptr<TcpConnection>{}.owner_before(ctx->connection))
+    {
+        // connection 曾被设置过（非空），检查是否还活着
+        if (ctx->connection.expired())
+        {
+            // TcpConnection 已销毁，忽略这个 CQE，避免野指针访问
+            return;
+        }
+    }
+
     int result = cqe->res;
     ctx->result_ = result;
 
@@ -251,8 +265,8 @@ void EventLoop::doPendingFunctors()
     // 批量出队到本地
     std::vector<Functor> functors;
     // 预留足够空间，避免频繁分配
-    functors.reserve(4096); 
-    
+    functors.reserve(4096);
+
     Functor f;
     // 关键修复：移除大小限制，尽可能排空队列，防止积压
     // 为了防止饿死IO，可以设一个较大的上限 (如 65536)
