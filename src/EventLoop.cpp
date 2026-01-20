@@ -36,7 +36,7 @@ EventLoop::EventLoop()
     // 高负载时会持续轮询，低负载时及时休眠
     params.sq_thread_idle = 50;
 
-    int ret = io_uring_queue_init_params(8192, &ring_, &params);
+    int ret = io_uring_queue_init_params(32768, &ring_, &params);
     if (ret < 0)
     {
         fprintf(stderr, "io_uring_queue_init failed: %d\n", ret);

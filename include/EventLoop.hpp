@@ -82,7 +82,7 @@ class EventLoop
     LockFreeQueue<Functor> pendingFunctors_;
     bool callingPendingFunctors_; // 是否正在执行任务队列
 
-    static constexpr int registeredBuffersCount = 4096; // 注册缓冲区的数量
+    static constexpr int registeredBuffersCount = 16384; // 注册缓冲区的数量
     static constexpr int registeredBuffersSize = 4096;  // 每个注册缓冲区的大小
     std::vector<void *> registeredBuffersPool;          // 缓冲区池，给TcpConnection复用
     std::vector<struct iovec> registeredIovecs;         // 注册到io_uring的iovec数组

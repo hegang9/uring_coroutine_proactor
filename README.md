@@ -26,4 +26,4 @@ sudo sh -c "ulimit -n 100000 && ulimit -l unlimited && ./proactor_test"
 cd /home/hegang/UCP/bin && sudo sh -c "ulimit -n 100000 && ulimit -l unlimited && ./proactor_test"
 
 # 压测端
-./stress_test.sh
+cd ~/wrk2 && ./run_bench.sh peak
