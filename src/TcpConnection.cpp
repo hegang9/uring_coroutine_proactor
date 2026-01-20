@@ -7,8 +7,9 @@
 TcpConnection::TcpConnection(const std::string &name, EventLoop *loop, int sockfd, const InetAddress &peerAddr)
     : name_(name), loop_(loop), socket_(sockfd), state_(TcpConnectionState::kDisconnected), reading_(false),
       curReadBuffer_(nullptr), curReadBufferSize_(0), curReadBufferOffset_(0), outputBuffer_(),
-      readContext_(IoType::Read, sockfd), writeContext_(IoType::Write, sockfd), localAddr_(socket_.getLocalAddress()),
-      peerAddr_(peerAddr), connectionCallback_(nullptr), closeCallback_(nullptr)
+      readContext_(IoType::Read, sockfd), writeContext_(IoType::Write, sockfd),
+      timeoutContext_(IoType::Timeout, sockfd), readTimeout_(0), readTimeoutSpec_(),
+      localAddr_(socket_.getLocalAddress()), peerAddr_(peerAddr), connectionCallback_(nullptr), closeCallback_(nullptr)
 {
     // 协程模式下，不需要绑定传统的回调函数 (handleRead/handleWrite)
 }
@@ -90,6 +91,21 @@ void TcpConnection::submitReadRequest(size_t nbytes)
         // 输出错误信息
         fprintf(stderr, "TcpConnection::submitReadRequest: no registered buffer available\n");
     }
+
+    if (readTimeout_ > std::chrono::milliseconds::zero())
+    {
+        io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
+        io_uring_sqe *ts_sqe = io_uring_get_sqe(&loop_->ring_);
+        if (ts_sqe)
+        {
+            io_uring_prep_link_timeout(ts_sqe, &readTimeoutSpec_, 0);
+            io_uring_sqe_set_data(ts_sqe, &timeoutContext_);
+        }
+        else
+        {
+            fprintf(stderr, "link timeout sqe unavailable\n");
+        }
+    }
 }
 
 void TcpConnection::submitReadRequestWithUserBuffer(char *userBuf, size_t userBufCap, size_t nbytes)
@@ -114,6 +130,21 @@ void TcpConnection::submitReadRequestWithUserBuffer(char *userBuf, size_t userBu
     io_uring_sqe_set_data(sqe, &readContext_);
     // 标记 idx 为 -1，表示未使用已注册缓冲区
     readContext_.idx = -1;
+
+    if (readTimeout_ > std::chrono::milliseconds::zero())
+    {
+        io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
+        io_uring_sqe *ts_sqe = io_uring_get_sqe(&loop_->ring_);
+        if (ts_sqe)
+        {
+            io_uring_prep_link_timeout(ts_sqe, &readTimeoutSpec_, 0);
+            io_uring_sqe_set_data(ts_sqe, &timeoutContext_);
+        }
+        else
+        {
+            fprintf(stderr, "link timeout sqe unavailable\n");
+        }
+    }
 }
 
 void TcpConnection::submitWriteRequest()
@@ -152,6 +183,13 @@ void TcpConnection::submitWriteRequestWithRegBuffer(void *buf, size_t len, int i
     writeContext_.idx = idx;
 }
 
+void TcpConnection::setTimeout(std::chrono::milliseconds timeout)
+{
+    readTimeout_ = timeout;
+    readTimeoutSpec_.tv_sec = timeout.count() / 1000;
+    readTimeoutSpec_.tv_nsec = (timeout.count() % 1000) * 1000000;
+}
+
 void TcpConnection::handleClose()
 {
     // 保护 TcpConnection，防止在回调过程中被销毁
@@ -182,6 +220,12 @@ void TcpConnection::connectEstablished()
     // 初始化 IoContext 的弱引用，用于 Cancel CQE 安全检查
     readContext_.connection = shared_from_this();
     writeContext_.connection = shared_from_this();
+    timeoutContext_.connection = shared_from_this();
+    timeoutContext_.handler = [self = shared_from_this()](int res) {
+        if (res == -ECANCELED) // 返回-ECANCELED表示没有超时，直接返回（省略）
+            return;
+        self->forceClose(); // 说明发生超时，强制关闭连接
+    };
 
     // 这里调用 connectionCallback_
     if (connectionCallback_)
