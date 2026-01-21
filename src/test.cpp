@@ -279,7 +279,7 @@ int main()
 
     // 2. 设置监听地址
     std::cout << "[DEBUG] Creating InetAddress..." << std::endl;
-    InetAddress listenAddr(8888);
+    InetAddress listenAddr(8888, "0.0.0.0");
     std::cout << "[DEBUG] InetAddress created." << std::endl;
 
     // 3. 创建 TcpServer

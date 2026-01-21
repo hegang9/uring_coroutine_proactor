@@ -1,4 +1,4 @@
-[root@iZbp17o43l7j4of6y499q2Z ~]# wrk -t20 -c500 -d20s http://172.23.181.116:6666
+[root@iZbp17o43l7j4of6y499q2Z ~]# wrk -t20 -c500 -d20s http://172.23.181.116:8888
 Running 20s test @ http://172.23.181.116:6666
 20 threads and 500 connections
 Thread Stats Avg Stdev Max +/- Stdev
@@ -7,3 +7,19 @@ Req/Sec 2.49k 2.12k 20.46k 76.13%
 877217 requests in 20.10s, 91.19MB read
 Requests/sec: 43646.43
 Transfer/sec: 4.54MB
+
+// 手机热点局域网，本地回环测试
+wrk -t20 -c500 -d20s http://192.168.233.127:8888
+
+hegang@LAPTOP-RLQFCN8B:~/UCP$ wrk -t20 -c500 -d20s http://192.168.233.127:8888
+Running 20s test @ http://192.168.233.127:8888
+  20 threads and 500 connections
+  Thread Stats   Avg      Stdev     Max   +/- Stdev
+    Latency   501.77us  141.79us   8.31ms   89.36%
+    Req/Sec    48.54k     2.21k   80.45k    85.12%
+  19379157 requests in 20.10s, 1.97GB read
+Requests/sec: 964144.79
+Transfer/sec:    100.22MB
+
+
+wrk -t20 -c2000 -d20s http://192.168.233.127:8888

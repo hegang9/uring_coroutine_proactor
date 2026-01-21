@@ -2,10 +2,10 @@
 
 #include <functional>
 
-#include "Socket.hpp"
 #include "IoContext.hpp"
-#include <netinet/in.h>
+#include "Socket.hpp"
 #include <memory>
+#include <netinet/in.h>
 
 class EventLoop;
 class InetAddress;
@@ -16,7 +16,7 @@ class InetAddress;
 
 class Acceptor
 {
-public:
+  public:
     // 禁止拷贝和赋值
     Acceptor(const Acceptor &) = delete;
     Acceptor &operator=(const Acceptor &) = delete;
@@ -39,11 +39,14 @@ public:
     }
 
     // 判断是否在监听
-    bool isListening() const { return listening_; }
+    bool isListening() const
+    {
+        return listening_;
+    }
     // 监听本地端口
     void listen();
 
-private:
+  private:
     void handleRead(int res); // 监听Socket可读事件的回调函数，接受新连接
     void asyncAccept();       // 提交异步 accept 请求
 
