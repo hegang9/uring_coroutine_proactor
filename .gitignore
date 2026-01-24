@@ -7,3 +7,5 @@
 /test_results
 .csv
 .sh
+benchmark_summary.csv
+benchmark.sh
