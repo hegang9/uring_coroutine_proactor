@@ -5,3 +5,5 @@
 /lib
 /图片
 /test_results
+.csv
+.sh
