@@ -146,8 +146,9 @@ std::string buildHttpResponse(std::string_view body, bool keepAlive = true)
     return response;
 }
 
-// ===================== HTTP Echo 协程任务 =====================
-Task httpEchoTask(std::shared_ptr<TcpConnection> conn)
+// ===================== HTTP Ping-Pong 协程任务 =====================
+// 适合 wrk 等 HTTP 压测工具
+Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
 {
     try
     {
@@ -214,54 +215,6 @@ Task httpEchoTask(std::shared_ptr<TcpConnection> conn)
     conn->forceClose();
 }
 
-// ===================== 原始 Echo 协程任务（保留） =====================
-// 协程业务逻辑：Echo 服务
-// 这是一个协程函数，因为它返回 Task 并且使用了 co_await
-// Tcp粘包和拆包问题应该在应用层进行处理
-Task echoTask(std::shared_ptr<TcpConnection> conn)
-{
-    try
-    {
-        while (true)
-        {
-            // 1. 异步读取数据 (挂起，直到数据到来)
-            // asyncRead 返回 AsyncReadAwaitable，co_await 会触发 submitReadRequest
-            // 这里的 1024 是期望读取的最大字节数
-            int n = co_await conn->asyncRead(1024);
-            // 可指定用户缓冲区版本：
-            // char userBuf[2048];
-            // int n = co_await conn->asyncRead(userBuf, sizeof(userBuf), 1024);
-
-            if (n <= 0)
-            {
-                // n == 0: 对端关闭连接 (FIN)
-                // n < 0:  发生错误
-                break;
-            }
-
-            // 2. 获取数据
-            auto [dataPtr, dataLen] = conn->getDataFromBuffer();
-
-            // 3. 异步发送数据 (挂起，直到数据写完)
-            // 零拷贝模式：直接从已注册缓冲区发送，不经过 outputBuffer_
-            int written = co_await conn->asyncSendZeroCopy();
-            // 发送完成后释放已注册缓冲区
-            conn->releaseCurReadBuffer();
-
-            if (written < 0)
-            {
-                break;
-            }
-        }
-    }
-    catch (const std::exception &e)
-    {
-        std::cout << "[Coroutine] Error: " << e.what() << std::endl;
-    }
-
-    conn->forceClose();
-}
-
 int main()
 {
     // 0. 初始化内存池（必须在使用任何内存池分配前调用）
@@ -292,9 +245,9 @@ int main()
     // 我们在这里启动协程来处理这个连接
     std::cout << "[DEBUG] Setting connection callback..." << std::endl;
     server.setConnectionCallback([](const std::shared_ptr<TcpConnection> &conn) {
-        // 启动 HTTP Echo 协程 (Fire and Forget)
-        // 使用 httpEchoTask 处理 HTTP 请求
-        httpEchoTask(conn);
+        // 启动 HTTP Ping-Pong 协程
+        // 使用 httpPingPongTask 处理 HTTP 请求
+        httpPingPongTask(conn);
     });
     std::cout << "[DEBUG] Connection callback set." << std::endl;
 
