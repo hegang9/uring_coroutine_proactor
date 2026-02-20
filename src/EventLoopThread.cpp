@@ -5,55 +5,62 @@
 
 #include "EventLoop.hpp"
 
-EventLoopThread::EventLoopThread(const ThreadInitCallback& cb)
-    : loop_(nullptr), exiting_(false), callback_(cb) {}
-
-EventLoopThread::~EventLoopThread() {
-  exiting_ = true;
-  if (loop_ != nullptr) {
-    loop_->quit();
-    thread_.join();  // 等待线程退出，确保资源安全释放
-  }
+EventLoopThread::EventLoopThread(const EventLoop::Options &options, const ThreadInitCallback &cb)
+    : loop_(nullptr), exiting_(false), options_(options), callback_(cb)
+{
 }
 
-EventLoop* EventLoopThread::startLoop() {
-  thread_ = std::thread(std::bind(&EventLoopThread::threadFunc, this));
-
-  EventLoop* loop = nullptr;
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-    while (loop_ == nullptr) {
-      cond_.wait(lock);
+EventLoopThread::~EventLoopThread()
+{
+    exiting_ = true;
+    if (loop_ != nullptr)
+    {
+        loop_->quit();
+        thread_.join(); // 等待线程退出，确保资源安全释放
     }
-    loop = loop_;
-    loop->initRegisteredBuffers();
-  }
-  return loop;
 }
 
-void EventLoopThread::threadFunc() {
-  EventLoop loop;  // 栈上创建EventLoop对象
+EventLoop *EventLoopThread::startLoop()
+{
+    thread_ = std::thread(std::bind(&EventLoopThread::threadFunc, this));
 
-  std::cout << "[Thread] EventLoop thread start, tid="
-            << std::this_thread::get_id() << ", loop=" << &loop << std::endl;
+    EventLoop *loop = nullptr;
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        while (loop_ == nullptr)
+        {
+            cond_.wait(lock);
+        }
+        loop = loop_;
+        loop->initRegisteredBuffers();
+    }
+    return loop;
+}
 
-  if (callback_) {
-    callback_(&loop);
-  }
+void EventLoopThread::threadFunc()
+{
+    EventLoop loop(options_); // 栈上创建EventLoop对象
 
-  {
-    std::unique_lock<std::mutex> lock(mutex_);
-    loop_ = &loop;
-    cond_.notify_one();
-  }
+    std::cout << "[Thread] EventLoop thread start, tid=" << std::this_thread::get_id() << ", loop=" << &loop
+              << std::endl;
 
-  loop.loop();
+    if (callback_)
+    {
+        callback_(&loop);
+    }
 
-  std::cout << "[Thread] EventLoop thread exit, tid="
-            << std::this_thread::get_id() << std::endl;
+    {
+        std::unique_lock<std::mutex> lock(mutex_);
+        loop_ = &loop;
+        cond_.notify_one();
+    }
 
-  std::lock_guard<std::mutex> lock(mutex_);
-  loop_ = nullptr;
+    loop.loop();
+
+    std::cout << "[Thread] EventLoop thread exit, tid=" << std::this_thread::get_id() << std::endl;
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    loop_ = nullptr;
 }
 
 /*

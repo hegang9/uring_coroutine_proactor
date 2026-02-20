@@ -33,6 +33,32 @@
 └── bin/            # 编译输出目录
 ```
 
+## 配置系统
+项目新增轻量配置系统，使用 `ini` 风格配置文件（支持 `[section]` 与 `key=value`）。默认配置文件路径为 `config/ucp.conf`，也可通过启动参数指定。
+
+示例：
+```text
+[server]
+name = TcpServer
+ip = 0.0.0.0
+port = 8888
+thread_num = 8
+read_timeout_ms = 5000
+
+[event_loop]
+ring_entries = 32768
+sqpoll = true
+sqpoll_idle_ms = 50
+registered_buffers_count = 16384
+registered_buffer_size = 4096
+pending_queue_capacity = 65536
+```
+
+启动方式：
+```text
+./proactor_test config/ucp.conf
+```
+
 ## 性能测试数据
 在Intel Core i7-14700HX CPU，8个子工作线程，Echo回显业务逻辑条件下，使用wrk进行压力测试数据如下：
 ```text

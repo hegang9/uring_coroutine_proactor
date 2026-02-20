@@ -6,6 +6,7 @@
 #include <string_view>
 #include <thread>
 
+#include "Config.hpp"
 #include "CoroutineTask.hpp"
 #include "EventLoop.hpp"
 #include "InetAddress.hpp"
@@ -215,8 +216,22 @@ Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
     conn->forceClose();
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    std::string configPath = "config/ucp.conf";
+    if (argc > 1 && argv[1] != nullptr)
+    {
+        configPath = argv[1];
+    }
+
+    Config config;
+    std::string configError;
+    if (!config.loadFromFile(configPath, &configError))
+    {
+        std::cerr << "[ERROR] " << configError << std::endl;
+        return 1;
+    }
+
     // 0. 初始化内存池（必须在使用任何内存池分配前调用）
     std::cout << "[DEBUG] Initializing memory pool..." << std::endl;
     HashBucket::initMemoryPool();
@@ -224,7 +239,19 @@ int main()
 
     // 1. 初始化 EventLoop
     std::cout << "[DEBUG] Creating EventLoop..." << std::endl;
-    EventLoop loop;
+    EventLoop::Options loopOptions;
+    loopOptions.ringEntries = config.getSizeT("event_loop.ring_entries", loopOptions.ringEntries);
+    loopOptions.sqpoll = config.getBool("event_loop.sqpoll", loopOptions.sqpoll);
+    loopOptions.sqpollIdleMs =
+        static_cast<unsigned int>(config.getSizeT("event_loop.sqpoll_idle_ms", loopOptions.sqpollIdleMs));
+    loopOptions.registeredBuffersCount =
+        config.getSizeT("event_loop.registered_buffers_count", loopOptions.registeredBuffersCount);
+    loopOptions.registeredBuffersSize =
+        config.getSizeT("event_loop.registered_buffer_size", loopOptions.registeredBuffersSize);
+    loopOptions.pendingQueueCapacity =
+        config.getSizeT("event_loop.pending_queue_capacity", loopOptions.pendingQueueCapacity);
+
+    EventLoop loop(loopOptions);
     std::cout << "[DEBUG] EventLoop created." << std::endl;
 
     // 1.5 初始化注册缓冲区池
@@ -232,12 +259,15 @@ int main()
 
     // 2. 设置监听地址
     std::cout << "[DEBUG] Creating InetAddress..." << std::endl;
-    InetAddress listenAddr(8888, "0.0.0.0");
+    std::string listenIp = config.getString("server.ip", "0.0.0.0");
+    int listenPort = config.getInt("server.port", 8888);
+    InetAddress listenAddr(static_cast<uint16_t>(listenPort), listenIp);
     std::cout << "[DEBUG] InetAddress created." << std::endl;
 
     // 3. 创建 TcpServer
     std::cout << "[DEBUG] Creating TcpServer..." << std::endl;
-    TcpServer server(&loop, listenAddr);
+    std::string serverName = config.getString("server.name", "TcpServer");
+    TcpServer server(&loop, listenAddr, serverName);
     std::cout << "[DEBUG] TcpServer created." << std::endl;
 
     // 4. 设置新连接回调
@@ -255,7 +285,10 @@ int main()
     std::cout << "[DEBUG] Setting thread num..." << std::endl;
     // SQPOLL 模式下，每个 Loop 会额外占用一个内核 Polling 线程
     // 所以 Worker 线程数建议设置为物理核心数的一半，以避免 CPU 竞争
-    server.setThreadNum(8);
+    int threadNum = config.getInt("server.thread_num", 8);
+    server.setThreadNum(threadNum);
+    server.setEventLoopOptions(loopOptions);
+    server.setReadTimeout(config.getDurationMs("server.read_timeout_ms", std::chrono::milliseconds(5000)));
     std::cout << "[DEBUG] Thread num set. Starting server..." << std::endl;
     server.start();
     std::cout << "[DEBUG] Server started." << std::endl;

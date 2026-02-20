@@ -15,9 +15,39 @@
 //     return static_cast<pid_t>(::syscall(SYS_gettid));
 // }
 
-EventLoop::EventLoop()
-    : running_(false), quit_(false), threadId_(::gettid()), wakeupFd_(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)),
-      wakeupContext_(IoType::Read, wakeupFd_), callingPendingFunctors_(false), pendingFunctors_{65536}
+namespace
+{
+// 把 EventLoop::Options 里的关键字段做“兜底修正”，避免用户传入 0 或非法值导致运行异常。
+EventLoop::Options normalizeOptions(EventLoop::Options options)
+{
+    if (options.ringEntries == 0)
+    {
+        options.ringEntries = 1024;
+    }
+    if (options.pendingQueueCapacity == 0)
+    {
+        options.pendingQueueCapacity = 1024;
+    }
+    if (options.registeredBuffersCount == 0)
+    {
+        options.registeredBuffersCount = 1;
+    }
+    if (options.registeredBuffersSize == 0)
+    {
+        options.registeredBuffersSize = 4096;
+    }
+    return options;
+}
+} // namespace
+
+EventLoop::EventLoop() : EventLoop(Options())
+{
+}
+
+EventLoop::EventLoop(const Options &options)
+    : options_(normalizeOptions(options)), running_(false), quit_(false), threadId_(::gettid()),
+      wakeupFd_(::eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC)), wakeupContext_(IoType::Read, wakeupFd_),
+      callingPendingFunctors_(false), pendingFunctors_{options_.pendingQueueCapacity}
 {
     if (wakeupFd_ < 0)
     {
@@ -30,13 +60,13 @@ EventLoop::EventLoop()
     // 这会启动一个内核线程来轮询 SQ Ring，极大提升高频小包场景的吞吐量
     struct io_uring_params params;
     memset(&params, 0, sizeof(params));
-    params.flags = IORING_SETUP_SQPOLL;
-    // 设置空闲超时时间，单位毫秒
-    // 减小到 50ms 以快速进入睡眠，减少空转时的 CPU 浪费
-    // 高负载时会持续轮询，低负载时及时休眠
-    params.sq_thread_idle = 50;
+    if (options_.sqpoll)
+    {
+        params.flags = IORING_SETUP_SQPOLL;
+        params.sq_thread_idle = options_.sqpollIdleMs;
+    }
 
-    int ret = io_uring_queue_init_params(32768, &ring_, &params);
+    int ret = io_uring_queue_init_params(static_cast<unsigned int>(options_.ringEntries), &ring_, &params);
     if (ret < 0)
     {
         fprintf(stderr, "io_uring_queue_init failed: %d\n", ret);
@@ -187,25 +217,26 @@ void EventLoop::wakeup()
 
 void EventLoop::initRegisteredBuffers()
 {
-    registeredBuffersPool.resize(registeredBuffersCount);
-    registeredIovecs.resize(registeredBuffersCount);
-    freeBufferIndices_.reserve(registeredBuffersCount);
+    registeredBuffersPool.resize(options_.registeredBuffersCount);
+    registeredIovecs.resize(options_.registeredBuffersCount);
+    freeBufferIndices_.reserve(options_.registeredBuffersCount);
 
     // 页对齐分配
-    for (int i = 0; i < registeredBuffersCount; ++i)
+    for (size_t i = 0; i < options_.registeredBuffersCount; ++i)
     {
         void *ptr = nullptr;
-        if (posix_memalign(&ptr, 4096, registeredBuffersSize) != 0)
+        if (posix_memalign(&ptr, 4096, options_.registeredBuffersSize) != 0)
         {
             throw std::bad_alloc();
         }
         registeredBuffersPool[i] = ptr;
         registeredIovecs[i].iov_base = ptr;
-        registeredIovecs[i].iov_len = registeredBuffersSize;
-        freeBufferIndices_.push_back(i);
+        registeredIovecs[i].iov_len = options_.registeredBuffersSize;
+        freeBufferIndices_.push_back(static_cast<int>(i));
     }
     // 注册到 io_uring
-    int ret = io_uring_register_buffers(&ring_, registeredIovecs.data(), registeredBuffersCount);
+    int ret = io_uring_register_buffers(&ring_, registeredIovecs.data(),
+                                        static_cast<unsigned int>(options_.registeredBuffersCount));
     if (ret < 0)
     {
         fprintf(stderr, "io_uring_register_buffers failed: %d\n", ret);

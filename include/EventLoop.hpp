@@ -21,9 +21,20 @@
 class EventLoop
 {
   public:
+    struct Options
+    {
+        size_t ringEntries = 32768;
+        bool sqpoll = true;
+        unsigned int sqpollIdleMs = 50;
+        size_t registeredBuffersCount = 16384;
+        size_t registeredBuffersSize = 4096;
+        size_t pendingQueueCapacity = 65536;
+    };
+
     using Functor = std::function<void()>;
 
     EventLoop();
+    explicit EventLoop(const Options &options);
     ~EventLoop();
 
     // 禁止拷贝和赋值
@@ -69,6 +80,7 @@ class EventLoop
     // 提交异步读操作以监听 wakeupFd_
     void asyncReadWakeup();
 
+    Options options_;
     std::atomic_bool running_; // 事件循环是否在运行
     std::atomic_bool quit_;    // 是否请求退出事件循环
     const pid_t threadId_;     // 事件循环所属线程的ID ，使用pid_t更加贴近内核，便于调试
@@ -82,10 +94,8 @@ class EventLoop
     LockFreeQueue<Functor> pendingFunctors_;
     bool callingPendingFunctors_; // 是否正在执行任务队列
 
-    static constexpr int registeredBuffersCount = 16384; // 注册缓冲区的数量
-    static constexpr int registeredBuffersSize = 4096;  // 每个注册缓冲区的大小
-    std::vector<void *> registeredBuffersPool;          // 缓冲区池，给TcpConnection复用
-    std::vector<struct iovec> registeredIovecs;         // 注册到io_uring的iovec数组
+    std::vector<void *> registeredBuffersPool;  // 缓冲区池，给TcpConnection复用
+    std::vector<struct iovec> registeredIovecs; // 注册到io_uring的iovec数组
 
     // 极致性能优化：单线程模型下无需锁或原子操作，直接用 vector 当栈
     std::vector<int> freeBufferIndices_; // 可用缓冲区索引栈

@@ -61,7 +61,7 @@ void TcpServer::newConnection(int sockfd, const InetAddress &peerAddr)
     conn->setConnectionCallback(connectionCallback_);
     // 设置关闭连接时的回调函数
     conn->setCloseCallback(std::bind(&TcpServer::removeConnection, this, std::placeholders::_1));
-    conn->setTimeout(std::chrono::milliseconds(5000)); // 设置5秒读超时，清除空闲死连接（僵尸连接）
+    conn->setTimeout(readTimeout_); // 设置读超时，清除空闲死连接（僵尸连接）
 
     // 保存连接到活动连接列表
     connections_[connName] = conn;

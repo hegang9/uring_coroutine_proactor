@@ -1,10 +1,12 @@
 #pragma once
 
-#include <thread>
-#include <mutex>
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <mutex>
+#include <thread>
+
+#include "EventLoop.hpp"
 
 class EventLoop;
 
@@ -14,10 +16,10 @@ class EventLoop;
 
 class EventLoopThread
 {
-public:
+  public:
     using ThreadInitCallback = std::function<void(EventLoop *)>;
 
-    EventLoopThread(const ThreadInitCallback &cb = ThreadInitCallback());
+    EventLoopThread(const EventLoop::Options &options, const ThreadInitCallback &cb = ThreadInitCallback());
     ~EventLoopThread();
 
     // 禁止拷贝和赋值
@@ -26,13 +28,14 @@ public:
 
     EventLoop *startLoop();
 
-private:
+  private:
     // promise/future版本，开销较大
     // void threadFunc(std::promise<EventLoop *> &&p);
     void threadFunc();
 
     EventLoop *loop_; // 线程中的 EventLoop 对象
     bool exiting_;
+    EventLoop::Options options_;
     std::thread thread_;
     std::mutex mutex_;
     std::condition_variable cond_;

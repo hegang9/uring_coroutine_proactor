@@ -1,14 +1,11 @@
 #include "EventLoopThreadPool.hpp"
-#include "EventLoopThread.hpp"
 #include "EventLoop.hpp"
+#include "EventLoopThread.hpp"
 #include <iostream>
 #include <thread>
 
 EventLoopThreadPool::EventLoopThreadPool(EventLoop *baseLoop)
-    : baseLoop_(baseLoop),
-      started_(false),
-      numThreads_(0),
-      next_(0)
+    : baseLoop_(baseLoop), started_(false), numThreads_(0), next_(0)
 {
 }
 
@@ -24,10 +21,9 @@ void EventLoopThreadPool::start(const ThreadInitCallback &cb)
 
     for (int i = 0; i < numThreads_; ++i)
     {
-        auto t = std::make_unique<EventLoopThread>(cb);
+        auto t = std::make_unique<EventLoopThread>(loopOptions_, cb);
         loops_.push_back(t->startLoop());
-        std::cout << "[ThreadPool] started worker " << i
-                  << ", tid=" << std::this_thread::get_id()
+        std::cout << "[ThreadPool] started worker " << i << ", tid=" << std::this_thread::get_id()
                   << ", loop=" << loops_.back() << std::endl;
         threads_.push_back(std::move(t));
     }
