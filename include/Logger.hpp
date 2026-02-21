@@ -215,33 +215,51 @@ class Logger
 
 /** @brief TRACE 级别日志宏（最详细，性能敏感场景慎用） */
 #define LOG_TRACE(fmt, ...)                                                                                            \
-    if (Logger::getLevel() <= LogLevel::TRACE)                                                                         \
-    Logger::log(LogLevel::TRACE, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (Logger::getLevel() <= LogLevel::TRACE)                                                                     \
+            Logger::log(LogLevel::TRACE, __FILE__, __LINE__, fmt, ##__VA_ARGS__);                                      \
+    } while (0)
 
 /** @brief DEBUG 级别日志宏（开发调试用） */
 #define LOG_DEBUG(fmt, ...)                                                                                            \
-    if (Logger::getLevel() <= LogLevel::DEBUG)                                                                         \
-    Logger::log(LogLevel::DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (Logger::getLevel() <= LogLevel::DEBUG)                                                                     \
+            Logger::log(LogLevel::DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__);                                      \
+    } while (0)
 
 /** @brief INFO 级别日志宏（重要业务流程） */
 #define LOG_INFO(fmt, ...)                                                                                             \
-    if (Logger::getLevel() <= LogLevel::INFO)                                                                          \
-    Logger::log(LogLevel::INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (Logger::getLevel() <= LogLevel::INFO)                                                                      \
+            Logger::log(LogLevel::INFO, __FILE__, __LINE__, fmt, ##__VA_ARGS__);                                       \
+    } while (0)
 
 /** @brief WARN 级别日志宏（潜在问题警告） */
 #define LOG_WARN(fmt, ...)                                                                                             \
-    if (Logger::getLevel() <= LogLevel::WARN)                                                                          \
-    Logger::log(LogLevel::WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (Logger::getLevel() <= LogLevel::WARN)                                                                      \
+            Logger::log(LogLevel::WARN, __FILE__, __LINE__, fmt, ##__VA_ARGS__);                                       \
+    } while (0)
 
 /** @brief ERROR 级别日志宏（可恢复的错误） */
 #define LOG_ERROR(fmt, ...)                                                                                            \
-    if (Logger::getLevel() <= LogLevel::ERROR)                                                                         \
-    Logger::log(LogLevel::ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (Logger::getLevel() <= LogLevel::ERROR)                                                                     \
+            Logger::log(LogLevel::ERROR, __FILE__, __LINE__, fmt, ##__VA_ARGS__);                                      \
+    } while (0)
 
 /** @brief FATAL 级别日志宏（致命错误） */
 #define LOG_FATAL(fmt, ...)                                                                                            \
-    if (Logger::getLevel() <= LogLevel::FATAL)                                                                         \
-    Logger::log(LogLevel::FATAL, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
+    do                                                                                                                 \
+    {                                                                                                                  \
+        if (Logger::getLevel() <= LogLevel::FATAL)                                                                     \
+            Logger::log(LogLevel::FATAL, __FILE__, __LINE__, fmt, ##__VA_ARGS__);                                      \
+    } while (0)
 
 // ============================================================================
 // 模板实现（需要在头文件中）
