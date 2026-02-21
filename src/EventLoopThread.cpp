@@ -1,9 +1,9 @@
 #include "EventLoopThread.hpp"
 
-#include <iostream>
 #include <thread>
 
 #include "EventLoop.hpp"
+#include "Logger.hpp"
 
 EventLoopThread::EventLoopThread(const EventLoop::Options &options, const ThreadInitCallback &cb)
     : loop_(nullptr), exiting_(false), options_(options), callback_(cb)
@@ -41,8 +41,7 @@ void EventLoopThread::threadFunc()
 {
     EventLoop loop(options_); // 栈上创建EventLoop对象
 
-    std::cout << "[Thread] EventLoop thread start, tid=" << std::this_thread::get_id() << ", loop=" << &loop
-              << std::endl;
+    LOG_INFO("EventLoop thread start, loop={}", static_cast<void *>(&loop));
 
     if (callback_)
     {
@@ -57,7 +56,7 @@ void EventLoopThread::threadFunc()
 
     loop.loop();
 
-    std::cout << "[Thread] EventLoop thread exit, tid=" << std::this_thread::get_id() << std::endl;
+    LOG_INFO("EventLoop thread exit");
 
     std::lock_guard<std::mutex> lock(mutex_);
     loop_ = nullptr;

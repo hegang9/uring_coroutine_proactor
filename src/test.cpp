@@ -233,16 +233,19 @@ int main(int argc, char **argv)
         configPath = argv[1];
     }
 
+    Logger::Options logOptions;
+    Logger::init(logOptions);
+
     Config config;
     std::string configError;
     if (!config.loadFromFile(configPath, &configError))
     {
-        std::cerr << "[ERROR] " << configError << std::endl;
+        LOG_ERROR("Config load failed: {}", configError);
+        Logger::shutdown();
         return 1;
     }
 
-    // 0.5 初始化日志系统
-    Logger::Options logOptions;
+    // 0.5 初始化日志系统（使用配置覆盖默认值）
     std::string logLevelStr = config.getString("log.level", "INFO");
     if (logLevelStr == "TRACE")
         logOptions.level = LogLevel::TRACE;
@@ -264,6 +267,7 @@ int main(int argc, char **argv)
     logOptions.console = config.getBool("log.console", true);
     logOptions.flushInterval = config.getDurationMs("log.flush_interval_ms", std::chrono::milliseconds(1000));
 
+    Logger::shutdown();
     Logger::init(logOptions);
     LOG_INFO("Logger initialized: level={}, file={}", logLevelStr, logOptions.logFile);
 
@@ -330,7 +334,7 @@ int main(int argc, char **argv)
     server.start();
     LOG_INFO("Server started successfully with {} worker threads.", threadNum);
 
-    std::cout << "Server started on port " << listenPort << ". Press Ctrl+C to stop." << std::endl;
+    LOG_INFO("Server started on port {}. Press Ctrl+C to stop.", listenPort);
 
     // 6. 进入事件循环
     LOG_DEBUG("Entering event loop...");

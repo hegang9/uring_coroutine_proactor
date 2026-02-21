@@ -4,9 +4,11 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
-#include <iostream>
 #include <thread>
+
+#include "Logger.hpp"
 
 // 获取当前线程ID的辅助函数 (Linux specific)
 // #include <sys/syscall.h>
@@ -51,7 +53,7 @@ EventLoop::EventLoop(const Options &options)
 {
     if (wakeupFd_ < 0)
     {
-        perror("eventfd");
+        LOG_ERROR("eventfd failed: {}", std::strerror(errno));
         abort();
     }
 
@@ -69,7 +71,7 @@ EventLoop::EventLoop(const Options &options)
     int ret = io_uring_queue_init_params(static_cast<unsigned int>(options_.ringEntries), &ring_, &params);
     if (ret < 0)
     {
-        fprintf(stderr, "io_uring_queue_init failed: %d\n", ret);
+        LOG_ERROR("io_uring_queue_init failed: {}", ret);
         abort();
     }
 
@@ -105,7 +107,7 @@ void EventLoop::loop()
         {
             if (ret == -EINTR)
                 continue; // 被信号中断
-            fprintf(stderr, "io_uring_wait_cqe error: %d\n", ret);
+            LOG_ERROR("io_uring_wait_cqe error: {}", ret);
             break;
         }
 
@@ -211,7 +213,7 @@ void EventLoop::wakeup()
     ssize_t n = ::write(wakeupFd_, &one, sizeof(one));
     if (n != sizeof(one))
     {
-        perror("EventLoop::wakeup write");
+        LOG_ERROR("EventLoop::wakeup write failed: {}", std::strerror(errno));
     }
 }
 
@@ -227,6 +229,7 @@ void EventLoop::initRegisteredBuffers()
         void *ptr = nullptr;
         if (posix_memalign(&ptr, 4096, options_.registeredBuffersSize) != 0)
         {
+            LOG_ERROR("initRegisteredBuffers: posix_memalign failed");
             throw std::bad_alloc();
         }
         registeredBuffersPool[i] = ptr;
@@ -239,7 +242,7 @@ void EventLoop::initRegisteredBuffers()
                                         static_cast<unsigned int>(options_.registeredBuffersCount));
     if (ret < 0)
     {
-        fprintf(stderr, "io_uring_register_buffers failed: %d\n", ret);
+        LOG_ERROR("io_uring_register_buffers failed: {}", ret);
     }
 }
 
@@ -279,7 +282,7 @@ void EventLoop::asyncReadWakeup()
     {
         // 极其罕见的情况：SQ 满了。
         // 实际生产中可能需要处理，这里简单打印
-        fprintf(stderr, "EventLoop::asyncReadWakeup: SQ full\n");
+        LOG_ERROR("EventLoop::asyncReadWakeup: SQ full");
         return;
     }
 

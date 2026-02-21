@@ -1,12 +1,14 @@
-#include <sys/types.h>
-#include <sys/socket.h>
+#include <cstring>
 #include <errno.h>
-#include <unistd.h>
 #include <liburing.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "Acceptor.hpp"
-#include "InetAddress.hpp"
 #include "EventLoop.hpp"
+#include "InetAddress.hpp"
+#include "Logger.hpp"
 
 // 创建一个非阻塞的监听Socket文件描述符
 static int createNonblockingSocket()
@@ -14,18 +16,15 @@ static int createNonblockingSocket()
     int listenSocketFd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, IPPROTO_TCP);
     if (listenSocketFd < 0)
     {
-        perror("socket");
+        LOG_ERROR("Acceptor socket create failed: {}", std::strerror(errno));
         abort();
     }
     return listenSocketFd;
 }
 
 Acceptor::Acceptor(EventLoop *loop, const InetAddress &listenAddr, bool reuseport)
-    : acceptLoop_(loop),
-      listenSocket_(createNonblockingSocket()),
-      listening_(false),
-      clientAddrLen_(sizeof(clientAddr_)),
-      acceptContext_(IoType::Accept, listenSocket_.getFd())
+    : acceptLoop_(loop), listenSocket_(createNonblockingSocket()), listening_(false),
+      clientAddrLen_(sizeof(clientAddr_)), acceptContext_(IoType::Accept, listenSocket_.getFd())
 {
     // 允许地址重用，防止TIME_WAIT导致绑定失败
     listenSocket_.setReuseAddr(true);
@@ -61,7 +60,7 @@ void Acceptor::asyncAccept()
     {
         // 如果 SQ 满了，可能需要处理错误或重试
         // 这里简单处理，实际项目中可能需要更健壮的错误处理
-        perror("No SQE available");
+        LOG_ERROR("Acceptor asyncAccept failed: no SQE available, err={}", std::strerror(errno));
         return;
     }
 
@@ -98,7 +97,7 @@ void Acceptor::handleRead(int res)
         if (res != -ECANCELED)
         {
             errno = -res;
-            perror("Acceptor::handleRead");
+            LOG_ERROR("Acceptor::handleRead failed: {}", std::strerror(errno));
         }
     }
 

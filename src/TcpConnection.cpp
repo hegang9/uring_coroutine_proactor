@@ -4,6 +4,8 @@
 
 #include <cstring>
 
+#include "Logger.hpp"
+
 TcpConnection::TcpConnection(const std::string &name, EventLoop *loop, int sockfd, const InetAddress &peerAddr)
     : name_(name), loop_(loop), socket_(sockfd), state_(TcpConnectionState::kDisconnected), reading_(false),
       curReadBuffer_(nullptr), curReadBufferSize_(0), curReadBufferOffset_(0), outputBuffer_(),
@@ -73,7 +75,7 @@ void TcpConnection::submitReadRequest(size_t nbytes)
     {
         // 极其罕见的情况：SQ 满了。
         // 实际生产中可能需要处理，这里简单打印
-        fprintf(stderr, "TcpConnection::submitReadRequest: SQ full\n");
+        LOG_ERROR("TcpConnection::submitReadRequest: SQ full");
         return;
     }
     int idx = loop_->getRegisteredBufferIndex();
@@ -89,7 +91,7 @@ void TcpConnection::submitReadRequest(size_t nbytes)
     else
     {
         // 输出错误信息
-        fprintf(stderr, "TcpConnection::submitReadRequest: no registered buffer available\n");
+        LOG_ERROR("TcpConnection::submitReadRequest: no registered buffer available");
     }
 
     if (readTimeout_ > std::chrono::milliseconds::zero())
@@ -103,7 +105,7 @@ void TcpConnection::submitReadRequest(size_t nbytes)
         }
         else
         {
-            fprintf(stderr, "link timeout sqe unavailable\n");
+            LOG_ERROR("TcpConnection::submitReadRequest: link timeout sqe unavailable");
         }
     }
 }
@@ -113,8 +115,7 @@ void TcpConnection::submitReadRequestWithUserBuffer(char *userBuf, size_t userBu
     if (userBuf == nullptr || userBufCap == 0)
     {
         // 无效的用户缓冲区，直接返回
-        fprintf(stderr, "TcpConnection::submitReadRequestWithUserBuffer: invalid user "
-                        "buffer\n");
+        LOG_ERROR("TcpConnection::submitReadRequestWithUserBuffer: invalid user buffer");
         return;
     }
     struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
@@ -122,7 +123,7 @@ void TcpConnection::submitReadRequestWithUserBuffer(char *userBuf, size_t userBu
     {
         // 极其罕见的情况：SQ 满了。
         // 实际生产中可能需要处理，这里简单打印
-        fprintf(stderr, "TcpConnection::submitReadRequestWithUserBuffer: SQ full\n");
+        LOG_ERROR("TcpConnection::submitReadRequestWithUserBuffer: SQ full");
         return;
     }
     // 使用用户提供的缓冲区进行读操作
@@ -142,7 +143,7 @@ void TcpConnection::submitReadRequestWithUserBuffer(char *userBuf, size_t userBu
         }
         else
         {
-            fprintf(stderr, "link timeout sqe unavailable\n");
+            LOG_ERROR("TcpConnection::submitReadRequestWithUserBuffer: link timeout sqe unavailable");
         }
     }
 }
@@ -154,7 +155,7 @@ void TcpConnection::submitWriteRequest()
     {
         // 极其罕见的情况：SQ 满了。
         // 实际生产中可能需要处理，这里简单打印
-        fprintf(stderr, "TcpConnection::submitWriteRequest: SQ full\n");
+        LOG_ERROR("TcpConnection::submitWriteRequest: SQ full");
         return;
     }
 
@@ -172,7 +173,7 @@ void TcpConnection::submitWriteRequestWithRegBuffer(void *buf, size_t len, int i
     struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
     if (!sqe)
     {
-        fprintf(stderr, "TcpConnection::submitWriteRequestWithRegBuffer: SQ full\n");
+        LOG_ERROR("TcpConnection::submitWriteRequestWithRegBuffer: SQ full");
         return;
     }
 
