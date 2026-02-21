@@ -22,7 +22,7 @@
 运行本系统需要较新的 Linux 内核以支持 io_uring 的完整特性，同时需要支持 C++20 的编译器。
 *   **操作系统**: Linux Kernel **5.10+** (推荐 5.19 或更高版本以获得最佳性能及完善的 io_uring 支持)。
 *   **编译器**: GCC **11.0+** 或 Clang **14.0+** (必须完整支持 C++20 标准)。
-*   **依赖库**: [liburing](https://github.com/axboe/liburing) (推荐 v2.2 及以上版本)。
+*   **依赖库**: [liburing](https://github.com/axboe/liburing) (推荐 v2.2 及以上版本)和fmt库。
 *   **构建工具**: CMake **3.10+**。
 
 ## 项目目录结构
