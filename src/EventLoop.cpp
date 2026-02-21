@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 
@@ -84,6 +85,23 @@ EventLoop::EventLoop(const Options &options)
 
 EventLoop::~EventLoop()
 {
+    if (!registeredIovecs.empty())
+    {
+        int ret = io_uring_unregister_buffers(&ring_);
+        if (ret < 0)
+        {
+            LOG_ERROR("io_uring_unregister_buffers failed: {}", ret);
+        }
+    }
+
+    for (void *ptr : registeredBuffersPool)
+    {
+        std::free(ptr);
+    }
+    registeredBuffersPool.clear();
+    registeredIovecs.clear();
+    freeBufferIndices_.clear();
+
     ::close(wakeupFd_);
     io_uring_queue_exit(&ring_);
 }
