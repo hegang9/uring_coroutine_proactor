@@ -290,6 +290,7 @@ void Logger::log(LogLevel level, const char *file, int line, const char *fmtStr,
     try
     {
         // fmt::runtime() 允许运行时格式字符串（fmt 8.x 要求）
+        // 把每个 {} 按顺序替换成对应的参数值
         auto msg = fmt::format(fmt::runtime(fmtStr), std::forward<Args>(args)...);
 
         // 拷贝到固定缓冲区（防止溢出）
