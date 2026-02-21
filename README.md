@@ -52,12 +52,55 @@ sqpoll_idle_ms = 50
 registered_buffers_count = 16384
 registered_buffer_size = 4096
 pending_queue_capacity = 65536
+
+[log]
+level = INFO
+file = logs/server.log
+max_size = 104857600
+max_files = 10
+async = true
+console = true
+flush_interval_ms = 1000
 ```
 
-启动方式：
-```text
-./proactor_test config/ucp.conf
+
+## 日志系统
+基于 `fmt` 库实现的高性能异步日志系统，核心特性：
+- **异步无阻塞**：I/O 线程写入无锁队列，后台线程负责落盘
+- **分级输出**：TRACE/DEBUG/INFO/WARN/ERROR/FATAL，运行时可配置
+- **自动滚动**：按大小或时间滚动日志文件
+- **多 Sink 支持**：同时输出到控制台和文件
+
+使用示例：
+```cpp
+LOG_INFO("Server started on {}:{}", ip, port);
+LOG_WARN("Connection timeout: fd={}", fd);
+LOG_ERROR("Accept failed: {}", strerror(errno));
 ```
+
+配置项（`config/ucp.conf` 的 `[log]` 段）：
+- `level`：日志级别（TRACE/DEBUG/INFO/WARN/ERROR/FATAL）
+- `file`：日志文件路径
+- `max_size`：单个日志文件最大大小（字节）
+- `max_files`：保留的日志文件数量
+- `async`：是否启用异步日志（true/false）
+- `console`：是否输出到控制台（true/false）
+- `flush_interval_ms`：后台线程刷新间隔（毫秒）
+
+
+
+
+## 构建命令
+mkdir build
+cd build
+cmake ..
+make -j"$(nproc)"
+
+# 启动命令
+cd /home/hegang/UCP && sudo sh -c "ulimit -n 100000 && ulimit -l unlimited && ./bin/proactor_test config/ucp.conf"
+
+# 压测脚本
+./benchmark.sh
 
 ## 性能测试数据
 在Intel Core i7-14700HX CPU，8个子工作线程，Echo回显业务逻辑条件下，使用wrk进行压力测试数据如下：
@@ -157,15 +200,3 @@ Running 20s test @ http://192.168.1.105:8888
 Requests/sec: 1036019.11
 Transfer/sec:    107.69MB
 ```
-
-## 构建命令
-mkdir build
-cd build
-cmake ..
-make -j"$(nproc)"
-
-# 启动命令
-cd /home/hegang/UCP/bin && sudo sh -c "ulimit -n 100000 && ulimit -l unlimited && ./proactor_test"
-
-# 压测脚本
-./benchmark.sh

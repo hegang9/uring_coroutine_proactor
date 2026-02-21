@@ -1,0 +1,6 @@
+[2026-02-21 13:01:20.196612] [INFO ] [42350] [test.cpp:262] Logger initialized: level=INFO, file=logs/server.log
+[2026-02-21 13:01:20.271629] [INFO ] [42350] [test.cpp:295] Server will listen on 0.0.0.0:8888
+[2026-02-21 13:01:20.541498] [INFO ] [42350] [test.cpp:325] Server started successfully with 8 worker threads.
+[2026-02-21 13:07:03.758580] [INFO ] [43591] [test.cpp:262] Logger initialized: level=INFO, file=logs/server.log
+[2026-02-21 13:07:03.833482] [INFO ] [43591] [test.cpp:295] Server will listen on 0.0.0.0:8888
+[2026-02-21 13:07:04.343890] [INFO ] [43591] [test.cpp:325] Server started successfully with 8 worker threads.

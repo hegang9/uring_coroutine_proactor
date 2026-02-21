@@ -17,6 +17,16 @@ find_package(PkgConfig REQUIRED)
 # 使用 pkg-config 查找 liburing
 pkg_check_modules(LIBURING REQUIRED liburing)
 
+# 查找 fmt 库（优先 CMake，降级到 pkg-config）
+find_package(fmt QUIET)
+if(NOT fmt_FOUND)
+    pkg_check_modules(FMT REQUIRED fmt)
+    set(FMT_LIBRARIES ${FMT_LIBRARIES})
+    include_directories(${FMT_INCLUDE_DIRS})
+else()
+    set(FMT_LIBRARIES fmt::fmt)
+endif()
+
 # 包含 liburing 头文件和链接库
 include_directories(${LIBURING_INCLUDE_DIRS})
 link_directories(${LIBURING_LIBRARY_DIRS})
@@ -38,7 +48,9 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
 # 1. 收集源文件 (排除入口文件)
 file(GLOB SRC_FILES "src/*.cpp")
 file(GLOB MEMORY_FILES "memory/*.cpp")
+file(GLOB LOG_FILES "log/*.cpp")
 list(APPEND SRC_FILES ${MEMORY_FILES})
+list(APPEND SRC_FILES ${LOG_FILES})
 # 排除 test.cpp 作为库的一部分
 list(REMOVE_ITEM SRC_FILES "${CMAKE_SOURCE_DIR}/src/test.cpp")
 # 如果存在 main.cpp 也排除
@@ -48,17 +60,17 @@ list(REMOVE_ITEM SRC_FILES "${CMAKE_SOURCE_DIR}/src/main.cpp")
 add_library(proactor_static STATIC ${SRC_FILES})
 set_target_properties(proactor_static PROPERTIES OUTPUT_NAME "proactor")
 # 静态库通常不需要链接依赖，但在某些构建系统中显式声明有助于传递依赖
-target_link_libraries(proactor_static ${LIBURING_LIBRARIES} pthread)
+target_link_libraries(proactor_static ${LIBURING_LIBRARIES} ${FMT_LIBRARIES} pthread)
 
 # 3. 生成动态库 (libproactor.so)
 add_library(proactor_shared SHARED ${SRC_FILES})
 set_target_properties(proactor_shared PROPERTIES OUTPUT_NAME "proactor")
-target_link_libraries(proactor_shared ${LIBURING_LIBRARIES} pthread)
+target_link_libraries(proactor_shared ${LIBURING_LIBRARIES} ${FMT_LIBRARIES} pthread)
 
 # 4. 生成测试可执行文件
 add_executable(proactor_test src/test.cpp)
 # 链接动态库
-target_link_libraries(proactor_test proactor_shared ${LIBURING_LIBRARIES} pthread)
+target_link_libraries(proactor_test proactor_shared ${LIBURING_LIBRARIES} ${FMT_LIBRARIES} pthread)
 
 # 5. 应用层压测工具
 add_executable(echo_bench bench/echo_bench.cpp)

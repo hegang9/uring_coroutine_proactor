@@ -10,6 +10,7 @@
 #include "CoroutineTask.hpp"
 #include "EventLoop.hpp"
 #include "InetAddress.hpp"
+#include "Logger.hpp"
 #include "MemoryPool.hpp"
 #include "TcpConnection.hpp"
 #include "TcpServer.hpp"
@@ -162,8 +163,11 @@ Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
 
             if (n <= 0)
             {
+                LOG_DEBUG("Connection closed or error: fd={}, n={}", conn->getName(), n);
                 break;
             }
+
+            LOG_TRACE("Read {} bytes from {}", n, conn->getName());
 
             // 2. 获取数据并追加到缓冲区
             auto [dataPtr, dataLen] = conn->getDataFromBuffer();
@@ -193,8 +197,11 @@ Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
                 int written = co_await conn->asyncSend(response);
                 if (written < 0)
                 {
+                    LOG_ERROR("Failed to send response: fd={}, written={}", conn->getName(), written);
                     co_return;
                 }
+
+                LOG_TRACE("Sent {} bytes to {}", written, conn->getName());
 
                 // 6. 移除已处理的请求数据
                 buffer.erase(0, consumed);
@@ -202,6 +209,7 @@ Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
                 // 7. 如果客户端请求关闭连接，则退出
                 if (!req.keepAlive)
                 {
+                    LOG_DEBUG("Client requested close: {}", conn->getName());
                     conn->forceClose();
                     co_return;
                 }
@@ -210,9 +218,10 @@ Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
     }
     catch (const std::exception &e)
     {
-        std::cout << "[HTTP] Error: " << e.what() << std::endl;
+        LOG_ERROR("HTTP task error: {}, exception: {}", conn->getName(), e.what());
     }
 
+    LOG_DEBUG("Closing connection: {}", conn->getName());
     conn->forceClose();
 }
 
@@ -232,13 +241,39 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    // 0.5 初始化日志系统
+    Logger::Options logOptions;
+    std::string logLevelStr = config.getString("log.level", "INFO");
+    if (logLevelStr == "TRACE")
+        logOptions.level = LogLevel::TRACE;
+    else if (logLevelStr == "DEBUG")
+        logOptions.level = LogLevel::DEBUG;
+    else if (logLevelStr == "INFO")
+        logOptions.level = LogLevel::INFO;
+    else if (logLevelStr == "WARN")
+        logOptions.level = LogLevel::WARN;
+    else if (logLevelStr == "ERROR")
+        logOptions.level = LogLevel::ERROR;
+    else if (logLevelStr == "FATAL")
+        logOptions.level = LogLevel::FATAL;
+
+    logOptions.logFile = config.getString("log.file", "logs/server.log");
+    logOptions.maxFileSize = config.getSizeT("log.max_size", 100 * 1024 * 1024);
+    logOptions.maxFiles = config.getSizeT("log.max_files", 10);
+    logOptions.async = config.getBool("log.async", true);
+    logOptions.console = config.getBool("log.console", true);
+    logOptions.flushInterval = config.getDurationMs("log.flush_interval_ms", std::chrono::milliseconds(1000));
+
+    Logger::init(logOptions);
+    LOG_INFO("Logger initialized: level={}, file={}", logLevelStr, logOptions.logFile);
+
     // 0. 初始化内存池（必须在使用任何内存池分配前调用）
-    std::cout << "[DEBUG] Initializing memory pool..." << std::endl;
+    LOG_DEBUG("Initializing memory pool...");
     HashBucket::initMemoryPool();
-    std::cout << "[DEBUG] Memory pool initialized successfully." << std::endl;
+    LOG_DEBUG("Memory pool initialized successfully.");
 
     // 1. 初始化 EventLoop
-    std::cout << "[DEBUG] Creating EventLoop..." << std::endl;
+    LOG_DEBUG("Creating EventLoop...");
     EventLoop::Options loopOptions;
     loopOptions.ringEntries = config.getSizeT("event_loop.ring_entries", loopOptions.ringEntries);
     loopOptions.sqpoll = config.getBool("event_loop.sqpoll", loopOptions.sqpoll);
@@ -252,53 +287,58 @@ int main(int argc, char **argv)
         config.getSizeT("event_loop.pending_queue_capacity", loopOptions.pendingQueueCapacity);
 
     EventLoop loop(loopOptions);
-    std::cout << "[DEBUG] EventLoop created." << std::endl;
+    LOG_DEBUG("EventLoop created.");
 
     // 1.5 初始化注册缓冲区池
     loop.initRegisteredBuffers();
+    LOG_DEBUG("Registered buffers initialized.");
 
     // 2. 设置监听地址
-    std::cout << "[DEBUG] Creating InetAddress..." << std::endl;
+    LOG_DEBUG("Creating InetAddress...");
     std::string listenIp = config.getString("server.ip", "0.0.0.0");
     int listenPort = config.getInt("server.port", 8888);
     InetAddress listenAddr(static_cast<uint16_t>(listenPort), listenIp);
-    std::cout << "[DEBUG] InetAddress created." << std::endl;
+    LOG_INFO("Server will listen on {}:{}", listenIp, listenPort);
 
     // 3. 创建 TcpServer
-    std::cout << "[DEBUG] Creating TcpServer..." << std::endl;
+    LOG_DEBUG("Creating TcpServer...");
     std::string serverName = config.getString("server.name", "TcpServer");
     TcpServer server(&loop, listenAddr, serverName);
-    std::cout << "[DEBUG] TcpServer created." << std::endl;
-
+    LOG_DEBUG("TcpServer created.");
     // 4. 设置新连接回调
     // 当有新连接时，TcpServer 会调用这个 lambda
     // 我们在这里启动协程来处理这个连接
-    std::cout << "[DEBUG] Setting connection callback..." << std::endl;
+    LOG_DEBUG("Setting connection callback...");
     server.setConnectionCallback([](const std::shared_ptr<TcpConnection> &conn) {
+        LOG_INFO("New connection established: {} -> {}", conn->getPeerAddr().toIpPort(),
+                 conn->getLocalAddr().toIpPort());
         // 启动 HTTP Ping-Pong 协程
         // 使用 httpPingPongTask 处理 HTTP 请求
         httpPingPongTask(conn);
     });
-    std::cout << "[DEBUG] Connection callback set." << std::endl;
+    LOG_DEBUG("Connection callback set.");
 
     // 5. 启动服务器
-    std::cout << "[DEBUG] Setting thread num..." << std::endl;
+    LOG_DEBUG("Setting thread num...");
     // SQPOLL 模式下，每个 Loop 会额外占用一个内核 Polling 线程
     // 所以 Worker 线程数建议设置为物理核心数的一半，以避免 CPU 竞争
     int threadNum = config.getInt("server.thread_num", 8);
     server.setThreadNum(threadNum);
     server.setEventLoopOptions(loopOptions);
     server.setReadTimeout(config.getDurationMs("server.read_timeout_ms", std::chrono::milliseconds(5000)));
-    std::cout << "[DEBUG] Thread num set. Starting server..." << std::endl;
+    LOG_DEBUG("Thread num set to {}. Starting server...", threadNum);
     server.start();
-    std::cout << "[DEBUG] Server started." << std::endl;
+    LOG_INFO("Server started successfully with {} worker threads.", threadNum);
 
-    std::cout << "Server started on port 8888. Press Ctrl+C to stop." << std::endl;
+    std::cout << "Server started on port " << listenPort << ". Press Ctrl+C to stop." << std::endl;
 
     // 6. 进入事件循环
-    std::cout << "[DEBUG] Entering event loop..." << std::endl;
+    LOG_DEBUG("Entering event loop...");
     loop.loop();
-    std::cout << "[DEBUG] Event loop exited." << std::endl;
+    LOG_INFO("Event loop exited.");
+
+    // 7. 关闭日志系统
+    Logger::shutdown();
 
     return 0;
 }
