@@ -51,6 +51,15 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection>
     // 改变连接状态
     void setState(TcpConnectionState state);
 
+    bool isConnected() const
+    {
+        return state_.load() == TcpConnectionState::kConnected;
+    }
+    bool isDisconnecting() const
+    {
+        return state_.load() == TcpConnectionState::kDisconnecting;
+    }
+
     // 重置TcpConnection，防止复用内存池中的内存时还残留上一个TcpConnection的脏数据
     void reset();
 
@@ -192,6 +201,8 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection>
     Socket socket_;                         // 连接的Socket对象
     std::atomic<TcpConnectionState> state_; // 连接状态
     std::string name_;                      // 连接名称
+
+    std::atomic_bool closeCallbackInvoked_{false}; // 防止关闭回调被重复触发的保护位
 
     bool reading_; // 是否处于读状态
 

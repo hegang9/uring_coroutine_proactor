@@ -7,7 +7,7 @@
 #include "Logger.hpp"
 
 TcpConnection::TcpConnection(const std::string &name, EventLoop *loop, int sockfd, const InetAddress &peerAddr)
-    : name_(name), loop_(loop), socket_(sockfd), state_(TcpConnectionState::kDisconnected), reading_(false),
+    : name_(name), loop_(loop), socket_(sockfd), state_(TcpConnectionState::kConnecting), reading_(false),
       curReadBuffer_(nullptr), curReadBufferSize_(0), curReadBufferOffset_(0), outputBuffer_(),
       readContext_(IoType::Read, sockfd), writeContext_(IoType::Write, sockfd),
       timeoutContext_(IoType::Timeout, sockfd), readTimeout_(0), readTimeoutSpec_(),
@@ -30,6 +30,7 @@ void TcpConnection::reset()
 {
     socket_.reset();
     state_.store(TcpConnectionState::kDisconnected);
+    closeCallbackInvoked_.store(false);
     reading_ = false;
     outputBuffer_.reset();
     // 读写上下文不需要重置fd，因为TcpConnection对象销毁时，fd已经关闭
@@ -70,6 +71,11 @@ void TcpConnection::forceClose()
 
 void TcpConnection::submitReadRequest(size_t nbytes)
 {
+    if (!isConnected())
+    {
+        LOG_WARN("TcpConnection::submitReadRequest: state not connected, name={}", name_);
+        return;
+    }
     struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
     if (!sqe)
     {
@@ -112,6 +118,11 @@ void TcpConnection::submitReadRequest(size_t nbytes)
 
 void TcpConnection::submitReadRequestWithUserBuffer(char *userBuf, size_t userBufCap, size_t nbytes)
 {
+    if (!isConnected())
+    {
+        LOG_WARN("TcpConnection::submitReadRequestWithUserBuffer: state not connected, name={}", name_);
+        return;
+    }
     if (userBuf == nullptr || userBufCap == 0)
     {
         // 无效的用户缓冲区，直接返回
@@ -150,6 +161,11 @@ void TcpConnection::submitReadRequestWithUserBuffer(char *userBuf, size_t userBu
 
 void TcpConnection::submitWriteRequest()
 {
+    if (!isConnected() && !isDisconnecting())
+    {
+        LOG_WARN("TcpConnection::submitWriteRequest: invalid state, name={}", name_);
+        return;
+    }
     struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
     if (!sqe)
     {
@@ -170,6 +186,11 @@ void TcpConnection::submitWriteRequest()
 
 void TcpConnection::submitWriteRequestWithRegBuffer(void *buf, size_t len, int idx)
 {
+    if (!isConnected() && !isDisconnecting())
+    {
+        LOG_WARN("TcpConnection::submitWriteRequestWithRegBuffer: invalid state, name={}", name_);
+        return;
+    }
     struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
     if (!sqe)
     {
@@ -193,6 +214,16 @@ void TcpConnection::setTimeout(std::chrono::milliseconds timeout)
 
 void TcpConnection::handleClose()
 {
+    TcpConnectionState state = state_.load();
+    if (state == TcpConnectionState::kDisconnected)
+    {
+        return;
+    }
+    state_.store(TcpConnectionState::kDisconnecting);
+    if (closeCallbackInvoked_.exchange(true))
+    {
+        return;
+    }
     // 保护 TcpConnection，防止在回调过程中被销毁
     std::shared_ptr<TcpConnection> guard(shared_from_this());
     if (closeCallback_)
@@ -225,6 +256,8 @@ void TcpConnection::connectEstablished()
     timeoutContext_.handler = [self = shared_from_this()](int res) {
         if (res == -ECANCELED) // 返回-ECANCELED表示没有超时，直接返回（省略）
             return;
+        if (!self->isConnected())
+            return;
         self->forceClose(); // 说明发生超时，强制关闭连接
     };
 
@@ -241,6 +274,7 @@ void TcpConnection::connectDestroyed()
     {
         setState(TcpConnectionState::kDisconnected);
     }
+    closeCallbackInvoked_.store(true);
     // Socket 对象析构时会自动 close(fd)，
     // io_uring 中挂起的请求会因为 fd 关闭而以 -ECANCELED 或 -EBADF 失败。
 
