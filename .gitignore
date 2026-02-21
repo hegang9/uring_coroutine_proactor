@@ -1,5 +1,6 @@
 /build
 /bin
+/logs
 .a
 .so
 /lib
@@ -10,4 +11,3 @@
 benchmark_summary.csv
 benchmark.sh
 .png
-/logs
