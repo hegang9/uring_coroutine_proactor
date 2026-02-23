@@ -33,8 +33,8 @@ class EventLoop
         // 当队列长度达到高水位时，触发告警或回调，防止内存无限增长
         size_t pendingQueueHighWaterMark = 52428; // 默认高水位：容量的 80%
         // 当队列长度回落到低水位时，触发恢复回调，表示系统已消化积压任务
-        size_t pendingQueueLowWaterMark = 13107;  // 默认低水位：容量的 20%
-        bool enableQueueFullStats = true;         // 是否开启队列满的统计告警
+        size_t pendingQueueLowWaterMark = 13107; // 默认低水位：容量的 20%
+        bool enableQueueFullStats = true;        // 是否开启队列满的统计告警
     };
 
     using Functor = std::function<void()>;

@@ -303,41 +303,40 @@ void TcpConnection::checkOutputBufferBackpressure(size_t incomingBytes)
         if (!wasInHighWaterMark)
         {
             outputBufferStats_.highWaterMarkCount++;
-            LOG_WARN("TcpConnection: output buffer high water mark reached, conn={}, bufSize={}, threshold={}", 
-                    name_, newSize, backpressureConfig_.outputBufferHighWaterMark);
+            LOG_WARN("TcpConnection: output buffer high water mark reached, conn={}, bufSize={}, threshold={}", name_,
+                     newSize, backpressureConfig_.outputBufferHighWaterMark);
         }
 
         // 根据配置的策略执行相应的背压动作
         switch (backpressureConfig_.strategy)
         {
-            case BackpressureStrategy::kDiscard:
-                LOG_ERROR("TcpConnection: discarding data due to backpressure, conn={}, discardBytes={}", 
-                         name_, incomingBytes);
-                outputBufferStats_.discardedBytes += incomingBytes;
-                // 不 append，直接返回（数据被丢弃）
-                return;
+        case BackpressureStrategy::kDiscard:
+            LOG_ERROR("TcpConnection: discarding data due to backpressure, conn={}, discardBytes={}", name_,
+                      incomingBytes);
+            outputBufferStats_.discardedBytes += incomingBytes;
+            // 不 append，直接返回（数据被丢弃）
+            return;
 
-            case BackpressureStrategy::kCloseConnection:
-                LOG_ERROR("TcpConnection: closing connection due to backpressure, conn={}, bufSize={}", 
-                         name_, newSize);
-                forceClose();
-                return;
+        case BackpressureStrategy::kCloseConnection:
+            LOG_ERROR("TcpConnection: closing connection due to backpressure, conn={}, bufSize={}", name_, newSize);
+            forceClose();
+            return;
 
-            case BackpressureStrategy::kPass:
-                // 继续发送，不做任何处理
-                break;
+        case BackpressureStrategy::kPass:
+            // 继续发送，不做任何处理
+            break;
 
-            case BackpressureStrategy::kBlock:
-                // 阻塞策略：在 AsyncWriteAwaitable 中实现协程挂起，直到水位降至低水位
-                LOG_WARN("TcpConnection: output buffer high water mark reached, blocking coroutine, conn={}", name_);
-                break;
+        case BackpressureStrategy::kBlock:
+            // 阻塞策略：在 AsyncWriteAwaitable 中实现协程挂起，直到水位降至低水位
+            LOG_WARN("TcpConnection: output buffer high water mark reached, blocking coroutine, conn={}", name_);
+            break;
         }
     }
     else if (newSize <= backpressureConfig_.outputBufferLowWaterMark && inHighWaterMark_.load())
     {
         // 从高水位恢复到正常
         inHighWaterMark_.store(false);
-        LOG_WARN("TcpConnection: output buffer low water mark restored, conn={}, bufSize={}, threshold={}", 
-                name_, newSize, backpressureConfig_.outputBufferLowWaterMark);
+        LOG_WARN("TcpConnection: output buffer low water mark restored, conn={}, bufSize={}, threshold={}", name_,
+                 newSize, backpressureConfig_.outputBufferLowWaterMark);
     }
 }
