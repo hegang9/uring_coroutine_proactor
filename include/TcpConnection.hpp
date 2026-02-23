@@ -23,6 +23,16 @@ enum class TcpConnectionState
     kDisconnecting // 断开中
 };
 
+// 背压策略枚举
+// 连接级别的背压策略：当发送缓冲区(outputBuffer_)达到高水位时采取的动作
+enum class BackpressureStrategy
+{
+    kDiscard,         // 丢弃新数据：保护内存，但会导致数据丢失（适用于允许丢包的场景）
+    kCloseConnection, // 断开连接：极端保护措施，防止恶意客户端慢接收导致服务端 OOM
+    kBlock,           // 阻塞等待：最优雅的策略，挂起当前发送协程，直到缓冲区降至低水位再恢复发送
+    kPass             // 不处理：继续追加数据，可能导致内存无限增长（需业务层自行控制）
+};
+
 class TcpConnection : public std::enable_shared_from_this<TcpConnection>
 {
   public:
@@ -122,12 +132,14 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection>
     // 发送数据
     AsyncWriteAwaitable asyncSend(const std::string &data)
     {
+        checkOutputBufferBackpressure(data.size());
         outputBuffer_.append(data);
         return asyncWrite();
     }
 
     AsyncWriteAwaitable asyncSend(const char *data, size_t len)
     {
+        checkOutputBufferBackpressure(len);
         outputBuffer_.append(data, len);
         return asyncWrite();
     }
@@ -191,12 +203,55 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection>
         return outputBuffer_;
     }
 
+    // 背压配置接口
+    // 连接级别的背压配置：控制单个连接的发送缓冲区大小
+    struct BackpressureConfig
+    {
+        // 高水位阈值：当 outputBuffer_ 超过此值时，触发背压策略（如挂起协程）
+        size_t outputBufferHighWaterMark = 1048576; // 默认 1MB
+        // 低水位阈值：当 outputBuffer_ 降至此值以下时，解除背压（如唤醒协程）
+        size_t outputBufferLowWaterMark = 262144; // 默认 256KB
+        // 默认背压策略：推荐在协程模式下改为 kBlock
+        BackpressureStrategy strategy = BackpressureStrategy::kBlock;
+    };
+
+    void setBackpressureConfig(const BackpressureConfig &config)
+    {
+        backpressureConfig_ = config;
+    }
+
+    BackpressureConfig getBackpressureConfig() const
+    {
+        return backpressureConfig_;
+    }
+
+    // 获取输出缓冲区统计信息
+    struct OutputBufferStats
+    {
+        size_t maxSize = 0;              // 观测到的最大大小
+        uint64_t highWaterMarkCount = 0; // 触发高水位次数
+        uint64_t discardedBytes = 0;     // 丢弃的字节数
+    };
+
+    OutputBufferStats getOutputBufferStats() const
+    {
+        return outputBufferStats_;
+    }
+
+    void resetOutputBufferStats()
+    {
+        outputBufferStats_ = OutputBufferStats();
+    }
+
     // 初始化连接（在所属 Loop 执行）
     void connectEstablished();
     // 销毁连接（在所属 Loop 执行）
     void connectDestroyed();
 
   private:
+    // 背压检查：检查 outputBuffer 是否超过高水位，执行相应策略
+    void checkOutputBufferBackpressure(size_t incomingBytes);
+
     EventLoop *loop_;                       // 所属的 子EventLoop
     Socket socket_;                         // 连接的Socket对象
     std::atomic<TcpConnectionState> state_; // 连接状态
@@ -217,6 +272,11 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection>
     size_t curReadBufferSize_;   // 当前读缓冲区的有效数据大小
     size_t curReadBufferOffset_; // 当前读缓冲区的偏移位置
     Buffer outputBuffer_;        // 发送缓冲区
+
+    // 背压管理
+    BackpressureConfig backpressureConfig_;   // 背压配置
+    OutputBufferStats outputBufferStats_;     // 统计信息
+    std::atomic_bool inHighWaterMark_{false}; // 是否处于高水位
 
     const InetAddress localAddr_; // 本地地址
     const InetAddress peerAddr_;  // 对端地址，保存下来以免频繁调用

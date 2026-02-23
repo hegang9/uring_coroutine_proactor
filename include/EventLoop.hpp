@@ -29,9 +29,18 @@ class EventLoop
         size_t registeredBuffersCount = 16384;
         size_t registeredBuffersSize = 4096;
         size_t pendingQueueCapacity = 65536;
+        // 背压管理配置：用于控制跨线程任务队列(pendingFunctors_)的积压情况
+        // 当队列长度达到高水位时，触发告警或回调，防止内存无限增长
+        size_t pendingQueueHighWaterMark = 52428; // 默认高水位：容量的 80%
+        // 当队列长度回落到低水位时，触发恢复回调，表示系统已消化积压任务
+        size_t pendingQueueLowWaterMark = 13107;  // 默认低水位：容量的 20%
+        bool enableQueueFullStats = true;         // 是否开启队列满的统计告警
     };
 
     using Functor = std::function<void()>;
+    // 背压回调：当队列从正常→高水位(true) 或 高水位→正常(false) 时调用
+    // 业务层可利用此回调实现全局限流（如暂停接收新连接）
+    using BackpressureCallback = std::function<void(bool highWaterMarkReached)>;
 
     EventLoop();
     explicit EventLoop(const Options &options);
@@ -69,6 +78,23 @@ class EventLoop
     // 根据索引取得缓冲区指针
     void *getRegisteredBuffer(int idx);
 
+    // 设置背压回调（当队列水位变化时触发）
+    void setBackpressureCallback(const BackpressureCallback &cb)
+    {
+        backpressureCallback_ = cb;
+    }
+
+    // 获取背压统计信息
+    struct BackpressureStats
+    {
+        size_t maxPendingQueueSize = 0;   // 观测到的最大队列大小
+        uint64_t queueFullCount = 0;      // 队列满的次数
+        uint64_t highWaterMarkEvents = 0; // 触发高水位的次数
+        uint64_t lowWaterMarkEvents = 0;  // 触发低水位的次数
+    };
+    BackpressureStats getBackpressureStats() const;
+    void resetBackpressureStats();
+
     // io_uring 实例，公开以便 Acceptor/Connection 提交请求
     struct io_uring ring_;
 
@@ -93,6 +119,11 @@ class EventLoop
     //   std::vector<Functor> pendingFunctors_;
     LockFreeQueue<Functor> pendingFunctors_;
     bool callingPendingFunctors_; // 是否正在执行任务队列
+
+    // 背压管理
+    BackpressureCallback backpressureCallback_; // 水位变化回调
+    BackpressureStats backpressureStats_;       // 统计信息
+    std::atomic_bool inHighWaterMark_{false};   // 是否已处于高水位状态
 
     std::vector<void *> registeredBuffersPool;  // 缓冲区池，给TcpConnection复用
     std::vector<struct iovec> registeredIovecs; // 注册到io_uring的iovec数组

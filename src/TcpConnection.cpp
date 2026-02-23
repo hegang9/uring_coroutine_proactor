@@ -285,3 +285,59 @@ void TcpConnection::connectDestroyed()
 // 提供实现以避免链接错误。
 // void TcpConnection::handleRead(int) {}
 // void TcpConnection::handleWrite(int) {}
+// 检查发送缓冲区是否触发背压（在每次 asyncSend 追加数据前调用）
+// 目的：防止慢接收客户端导致服务端发送缓冲区无限膨胀，最终 OOM
+void TcpConnection::checkOutputBufferBackpressure(size_t incomingBytes)
+{
+    size_t currentSize = outputBuffer_.readableBytes();
+    size_t newSize = currentSize + incomingBytes;
+
+    // 统计：记录缓冲区达到的最大峰值，便于后续调优
+    outputBufferStats_.maxSize = std::max(outputBufferStats_.maxSize, newSize);
+
+    // 检查是否超过高水位阈值
+    if (newSize >= backpressureConfig_.outputBufferHighWaterMark)
+    {
+        // 使用原子操作确保只在第一次跨越水位时打印日志和计数
+        bool wasInHighWaterMark = inHighWaterMark_.exchange(true);
+        if (!wasInHighWaterMark)
+        {
+            outputBufferStats_.highWaterMarkCount++;
+            LOG_WARN("TcpConnection: output buffer high water mark reached, conn={}, bufSize={}, threshold={}", 
+                    name_, newSize, backpressureConfig_.outputBufferHighWaterMark);
+        }
+
+        // 根据配置的策略执行相应的背压动作
+        switch (backpressureConfig_.strategy)
+        {
+            case BackpressureStrategy::kDiscard:
+                LOG_ERROR("TcpConnection: discarding data due to backpressure, conn={}, discardBytes={}", 
+                         name_, incomingBytes);
+                outputBufferStats_.discardedBytes += incomingBytes;
+                // 不 append，直接返回（数据被丢弃）
+                return;
+
+            case BackpressureStrategy::kCloseConnection:
+                LOG_ERROR("TcpConnection: closing connection due to backpressure, conn={}, bufSize={}", 
+                         name_, newSize);
+                forceClose();
+                return;
+
+            case BackpressureStrategy::kPass:
+                // 继续发送，不做任何处理
+                break;
+
+            case BackpressureStrategy::kBlock:
+                // 阻塞策略：在 AsyncWriteAwaitable 中实现协程挂起，直到水位降至低水位
+                LOG_WARN("TcpConnection: output buffer high water mark reached, blocking coroutine, conn={}", name_);
+                break;
+        }
+    }
+    else if (newSize <= backpressureConfig_.outputBufferLowWaterMark && inHighWaterMark_.load())
+    {
+        // 从高水位恢复到正常
+        inHighWaterMark_.store(false);
+        LOG_WARN("TcpConnection: output buffer low water mark restored, conn={}, bufSize={}, threshold={}", 
+                name_, newSize, backpressureConfig_.outputBufferLowWaterMark);
+    }
+}

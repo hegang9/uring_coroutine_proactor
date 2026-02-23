@@ -33,4 +33,8 @@ class AsyncWriteAwaitable {
   void* regBuf_;         // 已注册缓冲区指针（零拷贝模式）
   size_t regBufLen_;     // 已注册缓冲区数据长度
   int regBufIdx_;        // 已注册缓冲区索引（用于写完后归还）
+  
+  // 背压机制相关状态（仅在 kBlock 策略下生效）
+  int totalWritten_ = 0; // 记录在阻塞期间，底层 io_uring 累计成功写入的字节数
+  bool isBlocked_ = false; // 标记当前协程是否因为触发高水位而进入了阻塞挂起模式
 };

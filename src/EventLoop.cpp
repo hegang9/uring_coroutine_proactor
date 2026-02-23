@@ -39,6 +39,15 @@ EventLoop::Options normalizeOptions(EventLoop::Options options)
     {
         options.registeredBuffersSize = 4096;
     }
+    // 修正背压水位标记
+    if (options.pendingQueueHighWaterMark == 0 || options.pendingQueueHighWaterMark > options.pendingQueueCapacity)
+    {
+        options.pendingQueueHighWaterMark = options.pendingQueueCapacity * 80 / 100;
+    }
+    if (options.pendingQueueLowWaterMark == 0 || options.pendingQueueLowWaterMark >= options.pendingQueueHighWaterMark)
+    {
+        options.pendingQueueLowWaterMark = options.pendingQueueCapacity * 20 / 100;
+    }
     return options;
 }
 } // namespace
@@ -113,9 +122,12 @@ void EventLoop::loop()
 
     while (!quit_)
     {
-        // 批量提交所有 Pending 的 SQE
+        // 仅在有待提交 SQE 时提交，减少无效系统调用
         // 必须在等待之前提交，否则内核不知道有新请求，可能死锁
-        io_uring_submit(&ring_);
+        if (io_uring_sq_ready(&ring_) > 0)
+        {
+            io_uring_submit(&ring_);
+        }
 
         struct io_uring_cqe *cqe;
         // 等待至少一个事件完成
@@ -171,12 +183,58 @@ void EventLoop::runInLoop(Functor cb)
     }
 }
 
+// 将任务放入跨线程任务队列（pendingFunctors_）中，并唤醒目标 EventLoop 线程执行
+// 包含队列级别的背压机制：防止主线程分发任务过快，导致工作线程队列积压 OOM
 void EventLoop::queueInLoop(Functor cb)
 {
+    // 获取当前队列大小（无锁队列的 size() 是近似值，但用于背压判断足够了）
+    size_t curQueueSize = pendingFunctors_.size();
+
+    // 尝试入队，如果队列已满（达到 capacity），则丢弃任务并告警
     if (!pendingFunctors_.enqueue(std::move(cb)))
     {
-        // 队列满了，处理策略（可以阻塞重试或抛异常）
-        // TODO:处理队列满了的情况
+        // 队列满了，统计告警
+        if (options_.enableQueueFullStats)
+        {
+            backpressureStats_.queueFullCount++;
+            LOG_ERROR("EventLoop: pending queue full! queueSize={}, capacity={}, droppedCount={}", curQueueSize,
+                      options_.pendingQueueCapacity, backpressureStats_.queueFullCount);
+        }
+        return;
+    }
+
+    // 统计：记录队列达到的最大峰值，便于后续调优
+    backpressureStats_.maxPendingQueueSize = std::max(backpressureStats_.maxPendingQueueSize, curQueueSize);
+
+    // 检查是否触发高水位阈值
+    bool isHighWaterMark = curQueueSize >= options_.pendingQueueHighWaterMark;
+    bool wasInHighWaterMark = inHighWaterMark_.load(std::memory_order_relaxed);
+
+    if (isHighWaterMark && !wasInHighWaterMark)
+    {
+        // 状态跃迁：从正常状态进入高水位状态
+        inHighWaterMark_.store(true, std::memory_order_relaxed);
+        backpressureStats_.highWaterMarkEvents++;
+        LOG_WARN("EventLoop: entering high water mark, queueSize={}, threshold={}", curQueueSize,
+                 options_.pendingQueueHighWaterMark);
+        // 触发高水位回调，业务层可在此回调中暂停接收新连接或降低任务生产速率
+        if (backpressureCallback_)
+        {
+            backpressureCallback_(true);
+        }
+    }
+    else if (!isHighWaterMark && wasInHighWaterMark && curQueueSize <= options_.pendingQueueLowWaterMark)
+    {
+        // 状态跃迁：从高水位状态恢复到正常状态（必须降至低水位以下才算恢复，防止在阈值附近频繁震荡）
+        inHighWaterMark_.store(false, std::memory_order_relaxed);
+        backpressureStats_.lowWaterMarkEvents++;
+        LOG_WARN("EventLoop: leaving high water mark, queueSize={}, threshold={}", curQueueSize,
+                 options_.pendingQueueLowWaterMark);
+        // 触发低水位回调，业务层可在此回调中恢复接收新连接或恢复任务生产
+        if (backpressureCallback_)
+        {
+            backpressureCallback_(false);
+        }
     }
 
     // 如果不在当前线程，或者当前正在执行 pendingFunctors，都需要唤醒
@@ -335,4 +393,14 @@ void EventLoop::doPendingFunctors()
     }
 
     callingPendingFunctors_ = false;
+}
+
+EventLoop::BackpressureStats EventLoop::getBackpressureStats() const
+{
+    return backpressureStats_;
+}
+
+void EventLoop::resetBackpressureStats()
+{
+    backpressureStats_ = BackpressureStats();
 }
