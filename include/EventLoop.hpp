@@ -31,9 +31,9 @@ class EventLoop
         size_t pendingQueueCapacity = 65536;
         // 背压管理配置：用于控制跨线程任务队列(pendingFunctors_)的积压情况
         // 当队列长度达到高水位时，触发告警或回调，防止内存无限增长
-        size_t pendingQueueHighWaterMark = 52428; // 默认高水位：容量的 80%
+        size_t pendingQueueHighWaterMark = 58982; // 默认高水位：容量的 90%
         // 当队列长度回落到低水位时，触发恢复回调，表示系统已消化积压任务
-        size_t pendingQueueLowWaterMark = 13107; // 默认低水位：容量的 20%
+        size_t pendingQueueLowWaterMark = 26214; // 默认低水位：容量的 40%
         bool enableQueueFullStats = true;        // 是否开启队列满的统计告警
     };
 

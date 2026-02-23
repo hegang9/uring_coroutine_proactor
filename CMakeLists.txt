@@ -76,3 +76,9 @@ target_link_libraries(proactor_test proactor_shared ${LIBURING_LIBRARIES} ${FMT_
 add_executable(echo_bench bench/echo_bench.cpp)
 target_link_libraries(echo_bench pthread)
 
+# 6. 客户端测试工具
+add_executable(test_client client/test_client.cpp)
+target_link_libraries(test_client pthread)
+# 将 test_client 的输出目录单独设置为 client 目录
+set_target_properties(test_client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/client)
+

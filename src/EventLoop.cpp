@@ -42,11 +42,11 @@ EventLoop::Options normalizeOptions(EventLoop::Options options)
     // 修正背压水位标记
     if (options.pendingQueueHighWaterMark == 0 || options.pendingQueueHighWaterMark > options.pendingQueueCapacity)
     {
-        options.pendingQueueHighWaterMark = options.pendingQueueCapacity * 80 / 100;
+        options.pendingQueueHighWaterMark = options.pendingQueueCapacity * 90 / 100;
     }
     if (options.pendingQueueLowWaterMark == 0 || options.pendingQueueLowWaterMark >= options.pendingQueueHighWaterMark)
     {
-        options.pendingQueueLowWaterMark = options.pendingQueueCapacity * 20 / 100;
+        options.pendingQueueLowWaterMark = options.pendingQueueCapacity * 40 / 100;
     }
     return options;
 }

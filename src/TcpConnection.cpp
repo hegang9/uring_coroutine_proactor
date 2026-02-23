@@ -253,11 +253,26 @@ void TcpConnection::connectEstablished()
     readContext_.connection = shared_from_this();
     writeContext_.connection = shared_from_this();
     timeoutContext_.connection = shared_from_this();
-    timeoutContext_.handler = [self = shared_from_this()](int res) {
-        if (res == -ECANCELED) // 返回-ECANCELED表示没有超时，直接返回（省略）
+    // 修复循环引用：使用 weak_ptr 而不是直接捕获 shared_ptr
+    timeoutContext_.handler = [weak_self = std::weak_ptr<TcpConnection>(shared_from_this())](int res) {
+        LOG_INFO("Timeout handler called, res={}", res);
+        if (res == -ECANCELED) // 返回-ECANCELED表示没有超时，直接返回
             return;
+
+        // 尝试提升 weak_ptr
+        auto self = weak_self.lock();
+        if (!self)
+        {
+            LOG_INFO("Timeout handler: connection already destroyed");
+            return;
+        }
         if (!self->isConnected())
+        {
+            LOG_INFO("Timeout handler: connection not connected");
             return;
+        }
+
+        LOG_INFO("Connection {} timed out, forcing close", self->getName());
         self->forceClose(); // 说明发生超时，强制关闭连接
     };
 
@@ -275,7 +290,12 @@ void TcpConnection::connectDestroyed()
         setState(TcpConnectionState::kDisconnected);
     }
     closeCallbackInvoked_.store(true);
-    // Socket 对象析构时会自动 close(fd)，
+
+    // 关键修复：主动关闭底层 Socket 文件描述符
+    // 否则如果还有其他地方（比如 io_uring 的 IoContext）持有 shared_ptr，
+    // Socket 的析构函数就不会被调用，fd 就不会被关闭，连接也就一直挂着。
+    socket_.closeFd();
+
     // io_uring 中挂起的请求会因为 fd 关闭而以 -ECANCELED 或 -EBADF 失败。
 
     // 这里只设置连接状态，是因为TcpConnection对象是使用shared_ptr管理的，当没有引用时会自动销毁

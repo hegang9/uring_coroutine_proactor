@@ -40,23 +40,23 @@ int create_connection(const string &ip, int port)
     return sock;
 }
 
-// 1. 功能自测：正常发送和接收数据 (Echo测试)
+// 1. 功能自测：正常发送和接收数据 (HTTP GET测试)
 void test_normal_echo(const string &ip, int port)
 {
-    cout << "[测试 1] 正常Echo测试开始..." << endl;
+    cout << "[测试 1] 正常HTTP GET测试开始..." << endl;
     int sock = create_connection(ip, port);
     if (sock < 0)
         return;
 
-    string msg = "Hello UCP Server! This is a normal test message.";
+    string msg = "GET / HTTP/1.1\r\nHost: " + ip + ":" + to_string(port) + "\r\nConnection: close\r\n\r\n";
     send(sock, msg.c_str(), msg.length(), 0);
-    cout << "  -> 发送: " << msg << endl;
+    cout << "  -> 发送 HTTP 请求:\n" << msg;
 
-    char buffer[1024] = {0};
-    int valread = read(sock, buffer, 1024);
+    char buffer[4096] = {0};
+    int valread = read(sock, buffer, 4096);
     if (valread > 0)
     {
-        cout << "  <- 接收: " << string(buffer, valread) << endl;
+        cout << "  <- 接收 HTTP 响应 (前100字节): \n" << string(buffer, min(valread, 100)) << "..." << endl;
     }
     else
     {
@@ -64,7 +64,7 @@ void test_normal_echo(const string &ip, int port)
     }
 
     close(sock);
-    cout << "[测试 1] 正常Echo测试结束。\n" << endl;
+    cout << "[测试 1] 正常HTTP GET测试结束。\n" << endl;
 }
 
 // 2. 异常测试：慢速客户端 (模拟网络极差，每次只发1个字节)
@@ -75,25 +75,25 @@ void test_slow_client(const string &ip, int port)
     if (sock < 0)
         return;
 
-    string msg = "Slow message";
+    string msg = "GET / HTTP/1.1\r\nHost: " + ip + ":" + to_string(port) + "\r\nConnection: close\r\n\r\n";
     for (char c : msg)
     {
         send(sock, &c, 1, 0);
-        cout << "  -> 发送字节: " << c << endl;
+        cout << "  -> 发送字节: " << (c == '\r' ? "\\r" : (c == '\n' ? "\\n" : string(1, c))) << endl;
         this_thread::sleep_for(chrono::milliseconds(100));
     }
 
-    char buffer[1024] = {0};
+    char buffer[4096] = {0};
     // 设置一个较短的超时时间来读取，防止一直阻塞
     struct timeval tv;
     tv.tv_sec = 2;
     tv.tv_usec = 0;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
 
-    int valread = read(sock, buffer, 1024);
+    int valread = read(sock, buffer, 4096);
     if (valread > 0)
     {
-        cout << "  <- 接收: " << string(buffer, valread) << endl;
+        cout << "  <- 接收 HTTP 响应 (前100字节): \n" << string(buffer, min(valread, 100)) << "..." << endl;
     }
     else
     {
@@ -117,7 +117,7 @@ void test_idle_connection(const string &ip, int port)
     // 我们睡眠6秒，预期服务器会主动关闭连接
     this_thread::sleep_for(chrono::seconds(6));
 
-    string msg = "Are you still there?";
+    string msg = "GET / HTTP/1.1\r\n\r\n";
     int sent = send(sock, msg.c_str(), msg.length(), MSG_NOSIGNAL); // 忽略SIGPIPE
     if (sent < 0)
     {
@@ -135,14 +135,14 @@ void test_idle_connection(const string &ip, int port)
 // 4. 异常测试：客户端异常断开 (发送一半数据直接close，或者直接RST)
 void test_abrupt_close(const string &ip, int port)
 {
-    cout << "[测试 4] 异常断开测试开始 (发送部分数据后直接关闭Socket)..." << endl;
+    cout << "[测试 4] 异常断开测试开始 (发送部分HTTP请求后直接关闭Socket)..." << endl;
     int sock = create_connection(ip, port);
     if (sock < 0)
         return;
 
-    string msg = "Half message...";
+    string msg = "GET / HTTP/1.1\r\nHost: " + ip;
     send(sock, msg.c_str(), msg.length(), 0);
-    cout << "  -> 发送部分数据: " << msg << endl;
+    cout << "  -> 发送部分HTTP请求: " << msg << endl;
 
     // 开启 SO_LINGER 并设置 l_linger=0，这样 close 时会发送 RST 包而不是 FIN 包
     struct linger sl;
@@ -199,7 +199,7 @@ void print_usage(const char *prog_name)
 int main(int argc, char const *argv[])
 {
     string mode = "all";
-    string ip = "127.0.0.1";
+    string ip = "192.168.2.69";
     int port = 6666; // 默认读取自 ucp.conf
 
     if (argc > 1)

@@ -163,7 +163,7 @@ Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
 
             if (n <= 0)
             {
-                LOG_DEBUG("Connection closed or error: fd={}, n={}", conn->getName(), n);
+                LOG_INFO("Connection closed or error: fd={}, n={}", conn->getName(), n);
                 break;
             }
 
@@ -213,6 +213,7 @@ Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
                     conn->forceClose();
                     co_return;
                 }
+                // 如果是 keep-alive，循环会继续，等待读取下一个请求
             }
         }
     }
@@ -221,7 +222,7 @@ Task httpPingPongTask(std::shared_ptr<TcpConnection> conn)
         LOG_ERROR("HTTP task error: {}, exception: {}", conn->getName(), e.what());
     }
 
-    LOG_DEBUG("Closing connection: {}", conn->getName());
+    LOG_INFO("Closing connection: {}", conn->getName());
     conn->forceClose();
 }
 
