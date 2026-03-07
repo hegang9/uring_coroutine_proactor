@@ -209,6 +209,31 @@ void TcpConnection::submitWriteRequestWithRegBuffer(void *buf, size_t len, int i
     writeContext_.idx = idx;
 }
 
+void TcpConnection::submitSendfileRequest(int in_fd, off_t offset, size_t count)
+{
+    if (!isConnected() && !isDisconnecting())
+    {
+        LOG_WARN("TcpConnection::submitSendfileRequest: invalid state, name={}", name_);
+        return;
+    }
+
+    struct io_uring_sqe *sqe = io_uring_get_sqe(&loop_->ring_);
+    if (!sqe)
+    {
+        LOG_ERROR("TcpConnection::submitSendfileRequest: SQ full");
+        return;
+    }
+
+    // 虽然 io_uring 尚未原生提供 io_uring_prep_sendfile，
+    // 在内核层面 sendfile 通常是通过 splice 来实现的。
+    // 为了支持发送文件直接到 socket，我们这里通过预备 splice 操作来实现：
+    // （在不支持直接 file->socket splice 的老内核，可能需要通过中间 pipe 缓冲）
+    io_uring_prep_splice(sqe, in_fd, offset, socket_.getFd(), -1, count, 0);
+
+    io_uring_sqe_set_data(sqe, &writeContext_);
+    writeContext_.idx = -1; // 标记未使用已注册缓冲区
+}
+
 void TcpConnection::setTimeout(std::chrono::milliseconds timeout)
 {
     readTimeout_ = timeout;

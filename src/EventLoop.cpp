@@ -126,7 +126,7 @@ void EventLoop::loop()
         // 必须在等待之前提交，否则内核不知道有新请求，可能死锁
         if (io_uring_sq_ready(&ring_) > 0)
         {
-            io_uring_submit(&ring_);
+            io_uring_submit(&ring_);    // 更新尾指针，以便内核看到新请求
         }
 
         struct io_uring_cqe *cqe;

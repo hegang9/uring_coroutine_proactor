@@ -64,7 +64,12 @@ void AsyncWriteAwaitable::await_suspend(std::coroutine_handle<> handle) noexcept
         ctx.coro_handle = handle;
         ctx.handler = nullptr;
 
-        if (regBuf_ != nullptr)
+        if (inFd_ >= 0)
+        {
+            // Sendfile 零拷贝模式
+            conn_->submitSendfileRequest(inFd_, offset_, count_);
+        }
+        else if (regBuf_ != nullptr)
         {
             // 零拷贝模式：使用已注册缓冲区发送数据
             conn_->submitWriteRequestWithRegBuffer(regBuf_, regBufLen_, regBufIdx_);
@@ -86,7 +91,11 @@ int AsyncWriteAwaitable::await_resume() const noexcept
     // 安全清除 handler：此时协程已经恢复，离开 lambda 作用域，可以安全地销毁 handler
     ctx.handler = nullptr;
 
-    if (regBuf_ != nullptr)
+    if (inFd_ >= 0)
+    {
+        // Sendfile 零拷贝模式：无需对 outputBuffer_ 进行操作
+    }
+    else if (regBuf_ != nullptr)
     {
         // 零拷贝模式：写完后归还已注册缓冲区
         // 注意：归还操作在 TcpConnection::releaseCurReadBuffer() 中进行，

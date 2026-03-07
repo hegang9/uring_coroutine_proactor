@@ -33,6 +33,8 @@ link_directories(${LIBURING_LIBRARY_DIRS})
 
 # 添加头文件搜索路径
 include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CMAKE_SOURCE_DIR}/include/codec)
+include_directories(${CMAKE_SOURCE_DIR}/recommend)
 
 # 设置可执行文件输出目录
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
@@ -49,8 +51,10 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/lib)
 file(GLOB SRC_FILES "src/*.cpp")
 file(GLOB MEMORY_FILES "memory/*.cpp")
 file(GLOB LOG_FILES "log/*.cpp")
+file(GLOB CODEC_FILES "codec/*.cpp")
 list(APPEND SRC_FILES ${MEMORY_FILES})
 list(APPEND SRC_FILES ${LOG_FILES})
+list(APPEND SRC_FILES ${CODEC_FILES})
 # 排除 test.cpp 作为库的一部分
 list(REMOVE_ITEM SRC_FILES "${CMAKE_SOURCE_DIR}/src/test.cpp")
 # 如果存在 main.cpp 也排除
@@ -81,4 +85,21 @@ add_executable(test_client client/test_client.cpp)
 target_link_libraries(test_client pthread)
 # 将 test_client 的输出目录单独设置为 client 目录
 set_target_properties(test_client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/client)
+
+# ==========================================
+# 推荐服务项目构建
+# ==========================================
+
+# 7. 推荐服务主程序（包含召回、特征、排序的完整推荐系统）
+add_executable(recommend_server recommend/recommend_server.cpp)
+# 链接必要的库：UCP框架动态库、liburing、fmt、pthread
+target_link_libraries(recommend_server proactor_shared ${LIBURING_LIBRARIES} ${FMT_LIBRARIES} pthread)
+# 设置输出目录为 bin/
+set_target_properties(recommend_server PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+
+# 8. 推荐服务测试客户端（用于性能测试和功能验证）
+add_executable(recommend_client recommend/recommend_client.cpp)
+target_link_libraries(recommend_client pthread)
+# 设置输出目录为 recommend/
+set_target_properties(recommend_client PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/recommend)
 

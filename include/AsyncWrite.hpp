@@ -13,12 +13,18 @@ class AsyncWriteAwaitable
     AsyncWriteAwaitable(const AsyncWriteAwaitable &) = delete;
     AsyncWriteAwaitable &operator=(const AsyncWriteAwaitable &) = delete;
     // 普通写操作，从 outputBuffer_ 发送数据
-    AsyncWriteAwaitable(TcpConnection *conn) : conn_(conn), regBuf_(nullptr), regBufLen_(0), regBufIdx_(-1)
+    AsyncWriteAwaitable(TcpConnection *conn)
+        : conn_(conn), regBuf_(nullptr), regBufLen_(0), regBufIdx_(-1), inFd_(-1), offset_(0), count_(0)
     {
     }
     // 零拷贝写操作，直接从已注册缓冲区发送数据
     AsyncWriteAwaitable(TcpConnection *conn, void *regBuf, size_t len, int idx)
-        : conn_(conn), regBuf_(regBuf), regBufLen_(len), regBufIdx_(idx)
+        : conn_(conn), regBuf_(regBuf), regBufLen_(len), regBufIdx_(idx), inFd_(-1), offset_(0), count_(0)
+    {
+    }
+    // Sendfile 零拷贝操作
+    AsyncWriteAwaitable(TcpConnection *conn, int inFd, off_t offset, size_t count)
+        : conn_(conn), regBuf_(nullptr), regBufLen_(0), regBufIdx_(-1), inFd_(inFd), offset_(offset), count_(count)
     {
     }
     bool await_ready() const noexcept
@@ -44,6 +50,10 @@ class AsyncWriteAwaitable
     void *regBuf_;        // 已注册缓冲区指针（零拷贝模式）
     size_t regBufLen_;    // 已注册缓冲区数据长度
     int regBufIdx_;       // 已注册缓冲区索引（用于写完后归还）
+
+    int inFd_;     // 输入文件描述符（sendfile模式）
+    off_t offset_; // 文件偏移量（sendfile模式）
+    size_t count_; // 发送字节数（sendfile模式）
 
     // 背压机制相关状态（仅在 kBlock 策略下生效）
     int totalWritten_ = 0;   // 记录在阻塞期间，底层 io_uring 累计成功写入的字节数

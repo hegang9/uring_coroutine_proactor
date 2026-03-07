@@ -110,6 +110,7 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection>
     void submitReadRequestWithUserBuffer(char *userBuf, size_t userBufCap, size_t nbytes);
     void submitWriteRequest();
     void submitWriteRequestWithRegBuffer(void *buf, size_t len, int idx);
+    void submitSendfileRequest(int in_fd, off_t offset, size_t count);
 
     // 设置超时时间
     void setTimeout(std::chrono::milliseconds timeout);
@@ -150,6 +151,12 @@ class TcpConnection : public std::enable_shared_from_this<TcpConnection>
     {
         // 使用当前读缓冲区的数据直接发送
         return AsyncWriteAwaitable(this, curReadBuffer_, curReadBufferSize_, readContext_.idx);
+    }
+
+    // Sendfile 零拷贝发送：直接将文件内容发送到 socket，不经过用户态缓冲区
+    AsyncWriteAwaitable asyncSendfile(int in_fd, off_t offset, size_t count)
+    {
+        return AsyncWriteAwaitable(this, in_fd, offset, count);
     }
 
     // 提供获取IoContext的接口
