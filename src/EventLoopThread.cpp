@@ -20,6 +20,7 @@ EventLoopThread::~EventLoopThread()
     }
 }
 
+// 真正创建线程的函数
 EventLoop *EventLoopThread::startLoop()
 {
     thread_ = std::thread(std::bind(&EventLoopThread::threadFunc, this));
@@ -27,10 +28,7 @@ EventLoop *EventLoopThread::startLoop()
     EventLoop *loop = nullptr;
     {
         std::unique_lock<std::mutex> lock(mutex_);
-        while (loop_ == nullptr)
-        {
-            cond_.wait(lock);
-        }
+        cond_.wait(lock, [this] { return loop_ != nullptr; }); // 等待直到 loop_ 被设置
         loop = loop_;
         loop->initRegisteredBuffers();
     }
@@ -49,10 +47,10 @@ void EventLoopThread::threadFunc()
     }
 
     {
-        std::unique_lock<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(mutex_);
         loop_ = &loop;
-        cond_.notify_one();
     }
+    cond_.notify_one();
 
     loop.loop();
 
