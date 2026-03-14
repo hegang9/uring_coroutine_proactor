@@ -202,7 +202,7 @@ void TcpConnection::submitWriteRequestWithRegBuffer(void *buf, size_t len, int i
         return;
     }
 
-    // 使用已注册缓冲区进行零拷贝写操作
+    // 使用已注册缓冲区进行写操作（固定缓冲区模式）
     io_uring_prep_write_fixed(sqe, socket_.getFd(), buf, len, 0, idx);
     io_uring_sqe_set_data(sqe, &writeContext_);
     // 记录已注册缓冲区索引，写完后由调用者归还

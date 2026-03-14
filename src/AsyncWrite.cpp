@@ -10,8 +10,8 @@ void AsyncWriteAwaitable::await_suspend(std::coroutine_handle<> handle) noexcept
 {
     auto &ctx = conn_->getWriteContext();
 
-    // 背压机制：检查是否需要触发 kBlock 阻塞策略（仅对普通模式生效，零拷贝模式不经过 outputBuffer_）
-    // 触发条件：未开启零拷贝 && 配置了 kBlock 策略 && 发送缓冲区数据量已达到或超过高水位阈值
+    // 背压机制：检查是否需要触发 kBlock 阻塞策略（仅对普通模式生效，固定缓冲区模式不经过 outputBuffer_）
+    // 触发条件：未开启固定缓冲区 && 配置了 kBlock 策略 && 发送缓冲区数据量已达到或超过高水位阈值
     if (regBuf_ == nullptr && conn_->getBackpressureConfig().strategy == BackpressureStrategy::kBlock &&
         conn_->getOutputBuffer().readableBytes() >= conn_->getBackpressureConfig().outputBufferHighWaterMark)
     {
@@ -71,7 +71,7 @@ void AsyncWriteAwaitable::await_suspend(std::coroutine_handle<> handle) noexcept
         }
         else if (regBuf_ != nullptr)
         {
-            // 零拷贝模式：使用已注册缓冲区发送数据
+            // 固定缓冲区模式：使用已注册缓冲区发送数据
             conn_->submitWriteRequestWithRegBuffer(regBuf_, regBufLen_, regBufIdx_);
         }
         else
@@ -97,7 +97,7 @@ int AsyncWriteAwaitable::await_resume() const noexcept
     }
     else if (regBuf_ != nullptr)
     {
-        // 零拷贝模式：写完后归还已注册缓冲区
+        // 固定缓冲区模式：写完后归还已注册缓冲区
         // 注意：归还操作在 TcpConnection::releaseCurReadBuffer() 中进行，
         // 因为读写可能使用同一个缓冲区
     }

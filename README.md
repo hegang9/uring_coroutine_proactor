@@ -18,7 +18,7 @@
 
 ## ✨ 核心特性与优化设计
 - **🚀 内核级轮询 (Zero Syscall)**: 配置 `IORING_SETUP_SQPOLL` 开启内核轮询线程。应用投递任务仅需更新队列尾指针，极大概率免除 `io_uring_enter` 系统调用开销，实现原生极低延迟。
-- **⚡ 内核级零拷贝 (Zero Copy)**: 深度利用 io_uring 的 **Registered Buffers** 特性预先固定内存映射。避免高并发 I/O 时内核频繁执行 `get_user_pages`/`put_page` 开销，大幅提升极速读写性能。
+- **⚡ 减少内存映射开销 (Fixed Buffers)**: 深度利用 io_uring 的 **Registered Buffers** 特性预先固定内存映射。避免高并发 I/O 时内核频繁执行 `get_user_pages`/`put_page` 开销，大幅提升极速读写性能。
 - **🧵 C++20 无栈协程解耦**: 利用 C++20 协程定制 `promise_type` 与 `awaiter`，将异步 SQE 提交与 CQE 收割无缝桥接至协程的挂起与恢复，用同步代码思路编写异步流，彻底告别“回调地狱（Callback Hell）”。
 - **🎯 One Ring Per Thread 无锁调度**: 采用主从 Proactor 多线程模型。主线程专属 Accept，子线程独立接管 io_uring 数据流。单连接完整生命周期极致绑定单一线程，规避所有跨线程抢锁开销。
 - **⏱️ 内核级定时器代理**: 废弃用户态红黑树/时间轮等繁重逻辑，全面将请求超时、死链检测代理给 io_uring 专属的 `Link Timeout` 机制，降低 CPU 无意义开销。
